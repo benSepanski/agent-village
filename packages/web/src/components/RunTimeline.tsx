@@ -20,63 +20,45 @@ const EVENT_SEQUENCE = [
 
 const FAILED_EVENTS = new Set(['agent.run.failed', 'agent.run.spend_rejected']);
 
+function toEvent(
+  event: string,
+  start: number,
+  offsetMs: number,
+  tone: TimelineEvent['tone'] = 'normal',
+): TimelineEvent {
+  return { event, timestamp: new Date(start + offsetMs).toISOString(), tone };
+}
+
+const REJECTED_NAMES = ['agent.run.started', 'agent.run.config_loaded', 'agent.run.spend_rejected'];
+const ERROR_NAMES = [
+  'agent.run.started',
+  'agent.run.config_loaded',
+  'agent.run.spend_reserved',
+  'agent.run.secret_fetched',
+  'agent.run.anthropic_call',
+  'agent.run.failed',
+];
+
 function buildEvents(run: Run): TimelineEvent[] {
   // Without CloudWatch Logs Insights wired up yet, we reconstruct the
-  // canonical event sequence from the Run record. CW deep-link below gives
-  // the user the real raw events.
+  // canonical event sequence from the Run record. CW deep-link in RunDetail
+  // gives the user the real raw events.
   const start = new Date(run.createdAt).getTime();
-  const step = run.durationMs / Math.max(1, EVENT_SEQUENCE.length - 1);
-
   if (run.status === 'spend_limit_exceeded') {
-    return [
-      { event: 'agent.run.started', timestamp: new Date(start).toISOString(), tone: 'normal' },
-      {
-        event: 'agent.run.config_loaded',
-        timestamp: new Date(start + 1).toISOString(),
-        tone: 'normal',
-      },
-      {
-        event: 'agent.run.spend_rejected',
-        timestamp: new Date(start + 2).toISOString(),
-        tone: 'error',
-      },
-    ];
+    return REJECTED_NAMES.map((name, i) =>
+      toEvent(name, start, i, name === 'agent.run.spend_rejected' ? 'error' : 'normal'),
+    );
   }
   if (run.status === 'error') {
-    return [
-      { event: 'agent.run.started', timestamp: new Date(start).toISOString(), tone: 'normal' },
-      {
-        event: 'agent.run.config_loaded',
-        timestamp: new Date(start + step).toISOString(),
-        tone: 'normal',
-      },
-      {
-        event: 'agent.run.spend_reserved',
-        timestamp: new Date(start + step * 2).toISOString(),
-        tone: 'normal',
-      },
-      {
-        event: 'agent.run.secret_fetched',
-        timestamp: new Date(start + step * 3).toISOString(),
-        tone: 'normal',
-      },
-      {
-        event: 'agent.run.anthropic_call',
-        timestamp: new Date(start + step * 4).toISOString(),
-        tone: 'normal',
-      },
-      {
-        event: 'agent.run.failed',
-        timestamp: new Date(start + run.durationMs).toISOString(),
-        tone: 'error',
-      },
-    ];
+    const errorStep = run.durationMs / Math.max(1, ERROR_NAMES.length - 1);
+    return ERROR_NAMES.map((name, i) =>
+      toEvent(name, start, errorStep * i, name === 'agent.run.failed' ? 'error' : 'normal'),
+    );
   }
-  return EVENT_SEQUENCE.map((event, i) => ({
-    event,
-    timestamp: new Date(start + step * i).toISOString(),
-    tone: FAILED_EVENTS.has(event) ? 'error' : 'normal',
-  }));
+  const step = run.durationMs / Math.max(1, EVENT_SEQUENCE.length - 1);
+  return EVENT_SEQUENCE.map((name, i) =>
+    toEvent(name, start, step * i, FAILED_EVENTS.has(name) ? 'error' : 'normal'),
+  );
 }
 
 export function RunTimeline({ run }: { run: Run }) {
