@@ -1,0 +1,13 @@
+{
+  "name": "@agent-village/eslint-plugin",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "./index.js",
+  "scripts": {
+    "lint": "echo 'no lint here'",
+    "typecheck": "echo 'no typecheck here'",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf .turbo"
+  }
+}

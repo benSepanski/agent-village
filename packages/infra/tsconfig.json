@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "composite": false,
+    "types": ["node"],
+    "exactOptionalPropertyTypes": false
+  },
+  "references": [{ "path": "../shared" }],
+  "include": ["src/**/*", "bin/**/*", "config/**/*"],
+  "exclude": ["dist", "cdk.out", "node_modules", "**/*.test.ts"]
+}

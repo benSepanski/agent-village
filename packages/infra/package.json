@@ -1,0 +1,32 @@
+{
+  "name": "@agent-village/infra",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "synth": "cdk synth --all --context env=${AV_CDK_ENV:-dev}",
+    "synth:dev": "cdk synth --all --context env=dev",
+    "synth:prod": "cdk synth --all --context env=prod",
+    "deploy:dev": "cdk deploy --all --context env=dev --require-approval never",
+    "deploy:prod": "cdk deploy --all --context env=prod",
+    "diff:dev": "cdk diff --all --context env=dev",
+    "diff:prod": "cdk diff --all --context env=prod",
+    "clean": "rm -rf dist cdk.out .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@agent-village/shared": "workspace:*",
+    "aws-cdk-lib": "^2.175.0",
+    "cdk-nag": "^2.34.0",
+    "constructs": "^10.4.0"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.175.0",
+    "@types/node": "^22.10.0",
+    "source-map-support": "^0.5.21",
+    "tsx": "^4.19.2"
+  }
+}
