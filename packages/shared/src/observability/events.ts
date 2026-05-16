@@ -1,0 +1,27 @@
+export const LOG_EVENTS = [
+  'system.boot',
+  'system.shutdown',
+  'http.request.received',
+  'http.request.handled',
+  'http.request.error',
+  'agent.created',
+  'agent.updated',
+  'agent.deleted',
+  'agent.paused',
+  'agent.resumed',
+  'agent.run.started',
+  'agent.run.config_loaded',
+  'agent.run.spend_reserved',
+  'agent.run.spend_rejected',
+  'agent.run.secret_fetched',
+  'agent.run.anthropic_call',
+  'agent.run.anthropic_response',
+  'agent.run.spend_finalized',
+  'agent.run.persisted',
+  'agent.run.completed',
+  'agent.run.failed',
+  'schedule.upserted',
+  'schedule.removed',
+] as const;
+
+export type LogEvent = (typeof LOG_EVENTS)[number];

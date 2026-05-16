@@ -1,0 +1,39 @@
+{
+  "$schema": "https://turborepo.org/schema.json",
+  "globalDependencies": ["tsconfig.base.json", ".eslintrc.cjs", "package.json"],
+  "globalEnv": ["NODE_ENV", "AV_ENV"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "build/**"],
+      "inputs": ["src/**", "package.json", "tsconfig.json"]
+    },
+    "lint": {
+      "dependsOn": ["^build"],
+      "outputs": [],
+      "inputs": ["src/**", "test/**", ".eslintrc.cjs", "package.json"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": [],
+      "inputs": ["src/**", "test/**", "tsconfig.json"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"],
+      "inputs": ["src/**", "test/**", "vitest.config.ts", "package.json"]
+    },
+    "synth": {
+      "dependsOn": ["^build"],
+      "outputs": ["cdk.out/**"],
+      "inputs": ["src/**", "bin/**", "config/**", "cdk.json"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "clean": {
+      "cache": false
+    }
+  }
+}

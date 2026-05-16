@@ -1,0 +1,90 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment to deploy
+        required: true
+        type: choice
+        options: [dev, prod]
+
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-dev:
+    name: Deploy to dev
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_DEV }}
+          aws-region: us-east-1
+
+      - name: CDK deploy
+        run: pnpm --filter @agent-village/infra deploy:dev
+
+      - name: Smoke E2E
+        env:
+          AV_E2E_BASE_URL: ${{ secrets.AV_DEV_URL }}
+          AV_E2E_NO_SERVER: '1'
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm e2e
+
+  deploy-prod:
+    name: Deploy to prod
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: prod # GitHub environment with required reviewer protection rule
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_PROD }}
+          aws-region: us-east-1
+
+      - name: CDK deploy
+        run: pnpm --filter @agent-village/infra deploy:prod -- --require-approval never
+
+      - name: Smoke E2E
+        env:
+          AV_E2E_BASE_URL: ${{ secrets.AV_PROD_URL }}
+          AV_E2E_NO_SERVER: '1'
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm e2e
