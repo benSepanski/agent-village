@@ -40,6 +40,7 @@ const web = new WebStack(app, `${config.prefix}-web`, { env: stackEnv, config })
 const monitoring = new MonitoringStack(app, `${config.prefix}-monitoring`, {
   env: stackEnv,
   config,
+  runnerFunction: runner.runnerFunction,
 });
 
 for (const stack of [data, auth, api, runner, web, monitoring]) {
