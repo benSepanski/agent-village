@@ -111,11 +111,9 @@ describe('createAgent', () => {
 
 describe('updateAgent', () => {
   it('builds a SET expression for patched fields and parses the new attributes', async () => {
-    mock
-      .on(UpdateCommand)
-      .resolves({
-        Attributes: { ...agentItem, name: 'Renamed', updatedAt: '2026-05-17T00:00:00.000Z' },
-      });
+    mock.on(UpdateCommand).resolves({
+      Attributes: { ...agentItem, name: 'Renamed', updatedAt: '2026-05-17T00:00:00.000Z' },
+    });
     const updated = await updateAgent({
       agentId: AGENT_ID,
       ownerSub: SUB,
