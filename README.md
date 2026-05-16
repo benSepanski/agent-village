@@ -20,9 +20,10 @@ pnpm typecheck                   # tsc across the workspace
 pnpm test                        # vitest across the workspace
 pnpm e2e                         # playwright (boots web automatically)
 pnpm build                       # turbo build
-pnpm --filter @agent-village/infra synth -- --context env=dev
+pnpm --filter @agent-village/infra synth:dev
 ```
 
 ## Project documentation
 
-Start with [AGENTS.md](AGENTS.md). Detailed docs live in [`docs/`](docs/).
+- [AGENTS.md](AGENTS.md) — the map. Read this first.
+- [docs/README.md](docs/README.md) — the doc index. Pattern-match questions to files.

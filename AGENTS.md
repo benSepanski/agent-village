@@ -1,61 +1,49 @@
-# AGENTS.md — Agent Village
+# AGENTS.md
 
-This file is a **map**, not an encyclopedia. The system of record lives in `docs/`.
+This file is the **map**. Detailed docs live in [`docs/`](docs/) — each one answers a single question.
 
 ## What this repo is
 
-Agent Village is a personal AWS-hosted scheduler for autonomous AI agents.
-Users sign in, configure agents (Anthropic key, spend limit, cron, scoped tools), and
-the system runs them and shows results in a web UI.
+Agent Village: personal AWS-hosted scheduler for autonomous AI agents. Users sign in, configure agents (Anthropic key, spend limit, schedule, scoped tools), the system runs them, and the UI shows the results.
 
-## Where to find things
+## Where to go
 
-| You want to know about                        | Read                                                               |
-| --------------------------------------------- | ------------------------------------------------------------------ |
-| System layout, runtime topology               | [docs/architecture.md](docs/architecture.md)                       |
-| Coding conventions (logging, errors, schemas) | [docs/conventions.md](docs/conventions.md)                         |
-| DynamoDB single-table design + entity shapes  | [docs/data-model.md](docs/data-model.md)                           |
-| What you may / must ask about / must never do | [docs/permissions.md](docs/permissions.md)                         |
-| "How do I add an X?" recipes                  | [docs/playbooks/](docs/playbooks/)                                 |
-| Past decisions and the reasoning behind them  | [docs/adr/](docs/adr/)                                             |
-| Plan for the current build phase              | `/Users/bmsepan/.claude/plans/hello-let-s-work-iridescent-tome.md` |
+| You want to                                        | Go to                                                                          |
+| -------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Find the right doc for any question                | [docs/README.md](docs/README.md)                                               |
+| Understand the runtime topology                    | [docs/architecture/topology.md](docs/architecture/topology.md)                 |
+| See what's allowed to import from what             | [docs/architecture/layered-packages.md](docs/architecture/layered-packages.md) |
+| Know what you may / must ask about / must never do | [docs/permissions/](docs/permissions/)                                         |
+| Add a Lambda / route / etc.                        | [docs/playbooks/](docs/playbooks/)                                             |
+| See past architectural decisions                   | [docs/adr/](docs/adr/)                                                         |
+| Pick up the next phase of work                     | [docs/phases/](docs/phases/)                                                   |
 
-## Repo layout (one-liner)
+## The shape of the project (one screen)
 
-`packages/{shared,domain,data,services,api,runner,web,cli,infra}` with **enforced** dependency
-edges: `shared ← domain ← data ← services ← {api, runner, cli}`; `web ← shared`; `infra ← shared`.
-Run `pnpm deps:check` to verify.
+- **9 packages** under `packages/`, layered: `shared ← domain ← data ← services ← {api, runner, cli}`; `web ← shared`; `infra ← shared`.
+- **Dependency graph is mechanically enforced** by `dependency-cruiser`. Cross-edges fail CI.
+- **Lint hard bounds are errors, never warnings**: complexity ≤10, function ≤50 lines, file ≤300 lines, params ≤4, statements ≤15, max-depth 4.
+- **Structured logs only**: `logger.x({ event: '<closed-enum>', ...payload })`. Free-form strings are blocked by lint.
+- **Schemas at every trust boundary**: Lambda handlers must `.parse(...)` input through a Zod schema.
 
-## The three-tier rule (full text in [docs/permissions.md](docs/permissions.md))
-
-- **Always (do without asking):** read any file, run `pnpm lint|typecheck|test|build|synth|deps:check`,
-  add a new file inside a single package, write a unit test, update structured-log event names in
-  `packages/shared/src/observability/events.ts` and use them.
-- **Ask first:** add a new top-level package, weaken a lint rule, change the dependency graph,
-  add a new AWS service/resource, change a CDK construct's `removalPolicy`, modify CI/CD or
-  GitHub Actions, change Cognito password/MFA settings, change `monthlyBudgetUsd`.
-- **Never:** disable lint inline, commit secrets or API keys, `git push --force` to `main`,
-  edit `.husky/`, edit the contents of an existing ADR (write a new one instead), call AWS
-  prod from a local script, exfiltrate user data outside the deployed system.
-
-## Core commands
+## Commands you'll use
 
 ```bash
-pnpm install            # bootstrap
-pnpm local:up           # docker compose up + bootstrap LocalStack
-pnpm doctor:local       # green-status table of local stack
-pnpm dev                # turbo runs every package's dev target
-pnpm lint               # all hard bounds + custom rules
-pnpm typecheck          # tsc across the workspace
-pnpm test               # vitest across the workspace
-pnpm e2e                # playwright (boots web automatically)
-pnpm --filter @agent-village/infra synth -- --context env=dev
+pnpm install                     # bootstrap
+pnpm local:up                    # docker compose + LocalStack + DynamoDB Local
+pnpm doctor:local                # green/red status table
+pnpm dev                         # all packages in dev mode
+pnpm lint                        # everything
+pnpm typecheck                   # everything
+pnpm test                        # everything
+pnpm e2e                         # playwright
+pnpm --filter @agent-village/infra synth:dev
 ```
 
-## Hard bounds (lint errors, never warnings)
+## Three-tier permissions (summary)
 
-Complexity ≤ 10 · max depth 4 · function ≤ 50 lines · file ≤ 300 lines · params ≤ 4 · statements ≤ 15.
-Inline `eslint-disable` is forbidden. Free-form `logger.info("...")` is forbidden — pass
-`{ event: "<closed-enum>", ...payload }`.
+- **Always** — see [docs/permissions/always.md](docs/permissions/always.md).
+- **Ask first** — see [docs/permissions/ask-first.md](docs/permissions/ask-first.md).
+- **Never** — see [docs/permissions/never.md](docs/permissions/never.md).
 
-If a rule fires, the message tells you the fix. Read the message before suppressing.
+When in doubt, treat it as **Ask first**.

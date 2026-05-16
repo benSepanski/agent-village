@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# pre-push — full repo-wide verification before code reaches the remote.
+# Same set of gates CI runs; faster to fail here than wait for the cloud.
+set -e
+
+# Activate Node 22 if it's not already on PATH.
+if ! command -v node >/dev/null 2>&1 || ! node --version | grep -qE '^v(2[2-9]|[3-9][0-9])'; then
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  for sh in "/opt/local/share/nvm/nvm.sh" "$NVM_DIR/nvm.sh" "/opt/homebrew/opt/nvm/libexec/nvm.sh"; do
+    if [ -s "$sh" ]; then
+      # shellcheck source=/dev/null
+      . "$sh" && nvm use --silent 22 >/dev/null && break
+    fi
+  done
+fi
+
+# Skip on push during rebase / amend cycles; set AV_SKIP_PREPUSH=1 to bypass.
+if [ "${AV_SKIP_PREPUSH:-0}" = "1" ]; then
+  echo "↷ pre-push skipped (AV_SKIP_PREPUSH=1)"
+  exit 0
+fi
+
+echo "→ format check"
+pnpm format:check
+
+echo "→ lint (all packages)"
+pnpm lint
+
+echo "→ typecheck (all packages)"
+pnpm typecheck
+
+echo "→ unit + structural tests"
+pnpm test
+
+echo "→ cdk synth (dev)"
+pnpm --filter @agent-village/infra synth:dev >/dev/null
+
+echo "✓ pre-push checks passed"
