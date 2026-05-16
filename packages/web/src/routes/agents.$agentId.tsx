@@ -1,10 +1,23 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api-client/client.js';
-import type { Agent, CreateAgentInputType, UpdateAgentInputType } from '../api-client/types.js';
+import type {
+  Agent,
+  CreateAgentInputType,
+  Run,
+  UpdateAgentInputType,
+} from '../api-client/types.js';
 import { AgentForm } from '../components/AgentForm.js';
+import { PromptScratchpad } from '../components/PromptScratchpad.js';
+import { RunControls } from '../components/RunControls.js';
+import { RunHistoryTable } from '../components/RunHistoryTable.js';
 import { SpendBar } from '../components/SpendBar.js';
 import { StatusBadge } from '../components/StatusBadge.js';
+
+interface RunNowResult {
+  runId: string;
+  status: string;
+}
 
 function toPatch(input: CreateAgentInputType): UpdateAgentInputType {
   const patch: UpdateAgentInputType = {
@@ -82,6 +95,9 @@ export function AgentDetailPage() {
         <SpendBar spendUsedUsd={agent.spendUsedUsd} spendLimitUsd={agent.spendLimitUsd} />
       </p>
       <AgentActions agent={agent} />
+      <RunNowSection agentId={agentId} />
+      <h3>Recent runs</h3>
+      <RunsSection agentId={agentId} />
       <h3>Edit</h3>
       <AgentForm
         mode="edit"
@@ -91,7 +107,37 @@ export function AgentDetailPage() {
           await updateMutation.mutateAsync(toPatch(input));
         }}
       />
-      {/* Run history & timeline arrive in Step 12. */}
+      <h3>Prompt scratchpad</h3>
+      <PromptScratchpad
+        initialSystemPrompt={agent.systemPrompt}
+        onRun={() => alert('Scratchpad backend lands in Phase 2 — prompt captured locally only.')}
+        onSaveToAgent={async (systemPrompt) => {
+          await updateMutation.mutateAsync({ systemPrompt });
+        }}
+      />
     </section>
   );
+}
+
+function RunNowSection({ agentId }: { agentId: string }) {
+  const navigate = useNavigate();
+  const runNow = useMutation({
+    mutationFn: (opts: { dryRun: boolean }) =>
+      api.post<RunNowResult>(`/agents/${agentId}/run-now`, opts),
+    onSuccess: (res) =>
+      navigate({ to: '/agents/$agentId/runs/$runId', params: { agentId, runId: res.runId } }),
+  });
+  return (
+    <RunControls busy={runNow.isPending} onRun={(opts) => runNow.mutate({ dryRun: opts.dryRun })} />
+  );
+}
+
+function RunsSection({ agentId }: { agentId: string }) {
+  const { data, isPending, error } = useQuery<{ runs: Run[] }>({
+    queryKey: ['agents', agentId, 'runs'],
+    queryFn: () => api.get(`/agents/${agentId}/runs`),
+  });
+  if (isPending) return <p>Loading runs…</p>;
+  if (error || !data) return <p role="alert">Failed to load runs.</p>;
+  return <RunHistoryTable agentId={agentId} runs={data.runs} />;
 }
