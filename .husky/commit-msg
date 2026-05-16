@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# commit-msg — enforce a minimal commit-message contract.
+#
+# Rules:
+#   - First line is at most 72 chars (after subject prefix, fits in GitHub UI).
+#   - First line is not empty.
+#   - First line starts with one of: feat|fix|chore|docs|refactor|test|ci|build|perf|style|revert
+#       OR with a `Phase N:` prefix (reserved for phase-completion commits).
+#   - Optional blank line then a body. No trailing whitespace lines.
+#
+# Self-correcting message: failure prints the rule that fired and an example.
+set -e
+
+msg_file="$1"
+first_line=$(head -n 1 "$msg_file")
+len=${#first_line}
+
+fail() {
+  echo "✗ commit-msg: $1" >&2
+  echo "" >&2
+  echo "Example acceptable subjects:" >&2
+  echo "  feat: add agent-runner Lambda" >&2
+  echo "  fix(api): reject empty agent name" >&2
+  echo "  docs: clarify spend-reservation pattern" >&2
+  echo "  Phase 1: scaffold MVP services layer" >&2
+  exit 1
+}
+
+[ -z "$first_line" ] && fail "subject line is empty"
+[ "$len" -gt 72 ] && fail "subject line is ${len} chars (max 72)"
+
+# Allowed: conventional type, OR a "Phase N:" / "Phase N.M:" prefix.
+if ! echo "$first_line" | grep -qE '^(feat|fix|chore|docs|refactor|test|ci|build|perf|style|revert)(\([a-z0-9-]+\))?!?: .+|^Phase [0-9]+(\.[0-9]+)?: .+'; then
+  fail "subject must start with a conventional type (feat|fix|chore|docs|refactor|test|ci|build|perf|style|revert) or 'Phase N:'"
+fi
+
+exit 0

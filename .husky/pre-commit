@@ -1,1 +1,22 @@
+#!/usr/bin/env bash
+# pre-commit — fast, scoped checks on staged files. Slower repo-wide gates
+# live in pre-push so the commit loop stays snappy.
+set -e
+
+# Ensure Node 22 is on PATH when commits originate from a GUI git client
+# whose shell hasn't sourced nvm.
+if ! command -v node >/dev/null 2>&1 || ! node --version | grep -qE '^v(2[2-9]|[3-9][0-9])'; then
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  for sh in "/opt/local/share/nvm/nvm.sh" "$NVM_DIR/nvm.sh" "/opt/homebrew/opt/nvm/libexec/nvm.sh"; do
+    if [ -s "$sh" ]; then
+      # shellcheck source=/dev/null
+      . "$sh" && nvm use --silent 22 >/dev/null && break
+    fi
+  done
+fi
+
+echo "→ lint-staged"
 pnpm exec lint-staged
+
+echo "→ depcruise (package layer graph)"
+pnpm exec depcruise packages tools --config .dependency-cruiser.cjs --output-type err-long
