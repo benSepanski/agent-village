@@ -1,0 +1,10 @@
+# Generated / vendored files prettier should not touch.
+# `.gitignore` is already passed via `--ignore-path`, but the lockfile is committed.
+pnpm-lock.yaml
+
+# Build artifacts (also in .gitignore but listed here for clarity).
+**/dist/
+**/cdk.out/
+**/coverage/
+**/playwright-report/
+**/.turbo/
