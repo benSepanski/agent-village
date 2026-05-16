@@ -53,6 +53,7 @@ cdk.context.json
 *.p12
 *.pfx
 secrets/
+!packages/data/src/secrets/
 secrets.json
 credentials.json
 .aws/credentials
