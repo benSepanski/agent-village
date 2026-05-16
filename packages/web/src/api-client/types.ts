@@ -1,5 +1,7 @@
 export {
   AgentSchema,
+  ANTHROPIC_MODELS,
+  AnthropicModel,
   CreateAgentInput,
   RunSchema,
   UpdateAgentInput,
@@ -9,7 +11,6 @@ export type {
   Agent,
   AgentId,
   AgentStatus,
-  AnthropicModel,
   CreateAgentInput as CreateAgentInputType,
   Run,
   RunId,
