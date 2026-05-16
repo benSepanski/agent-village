@@ -15,9 +15,25 @@ import {
   type Run,
   type RunId,
   type RunStatus,
+  type UserId,
 } from '@agent-village/shared';
+import { getMyAgent } from './agent.js';
 import { logger } from './logger.js';
 import { ulid } from './ulid.js';
+
+export async function listForAgent(ownerSub: UserId, agentId: AgentId): Promise<Run[]> {
+  await getMyAgent(ownerSub, agentId);
+  return runRepo.listForAgent(agentId);
+}
+
+export async function getRun(
+  ownerSub: UserId,
+  agentId: AgentId,
+  runId: RunId,
+): Promise<Run | null> {
+  await getMyAgent(ownerSub, agentId);
+  return runRepo.getOne(agentId, runId);
+}
 
 const MAX_TOKENS = 1024;
 const DRY_RUN_MAX_TOKENS = 256;

@@ -25,6 +25,7 @@ module.exports = {
   },
   create(context) {
     const filename = context.filename || context.getFilename();
+    if (/\.(test|spec)\.ts$/.test(filename)) return {};
     const isHandler =
       /packages\/api\/.*\/handlers\/.*\.ts$/.test(filename) ||
       /packages\/runner\/.*\/handler\.ts$/.test(filename);
