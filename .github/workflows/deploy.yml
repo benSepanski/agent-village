@@ -1,5 +1,12 @@
 name: Deploy
 
+# Deploy-to-dev runs only when the repo variable AV_DEPLOY_DEV_ENABLED is set
+# to "true" (Settings → Secrets and variables → Actions → Variables → New variable).
+# Keep it unset until the AWS OIDC role (secret AWS_DEPLOY_ROLE_DEV) has been
+# created — otherwise the job fails at credential load. Skipped jobs show grey
+# on the run history instead of red, so this gate keeps the badge clean.
+# Deploy-to-prod is unchanged (tag-triggered + GitHub `prod` environment approval).
+
 on:
   push:
     branches: [main]
@@ -23,7 +30,7 @@ permissions:
 jobs:
   deploy-dev:
     name: Deploy to dev
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AV_DEPLOY_DEV_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment: dev
     timeout-minutes: 30
