@@ -26,6 +26,19 @@ Agent Village: personal AWS-hosted scheduler for autonomous AI agents. Users sig
 - **Structured logs only**: `logger.x({ event: '<closed-enum>', ...payload })`. Free-form strings are blocked by lint.
 - **Schemas at every trust boundary**: Lambda handlers must `.parse(...)` input through a Zod schema.
 
+## How the harness expects you to work
+
+The harness — linters, schemas, dependency-cruiser, hooks, CI — is the primary way correctness is enforced. AGENTS.md and `docs/` exist to help you, but if the harness disagrees with prose, the harness wins. Operating rules:
+
+- **Mechanism beats memory.** Quality is enforced by tools, not by remembering this file. **Never edit lint, type-check, dependency-cruiser, or CI config to silence a violation** — fix the code, or raise an ADR if the rule itself is wrong.
+- **Tests and schemas are ground truth; prose rots.** Prefer adding a Zod schema, test, or ADR over a paragraph that re-describes the code.
+- **Iterative disclosure.** Each doc answers one question on one screen — don't sprawl AGENTS.md. New knowledge goes in a new doc linked from [docs/README.md](docs/README.md).
+- **Fast loops over slow ones.** Run `pnpm lint` / `pnpm typecheck` / `pnpm test` locally — don't push to find out CI says no.
+- **Plan, then verify.** For non-trivial work, sketch the change before executing. Compiling is not "working" — run the relevant tests (and `pnpm e2e` for UI) before declaring it done, or say explicitly in the PR what you couldn't verify.
+- **Single source of truth lives in the repo.** Facts that matter belong in code, schemas, tests, ADRs, or `docs/` — not in chat or memory.
+
+Full discussion of these principles (read only if designing new harness pieces or debating a rule): [docs/conventions/harness-engineering.md](docs/conventions/harness-engineering.md).
+
 ## Commands you'll use
 
 ```bash
