@@ -59,6 +59,8 @@ The ordering matters: editor (ms) → pre-commit hook (s) → pre-push hook (s) 
 
 For this repo specifically:
 
+- `pnpm install` is the bootstrap step in any fresh worktree — it installs the **devDependencies** (lint-staged, husky, eslint, prettier, dependency-cruiser) that the pre-commit and pre-push hooks call. Without it, your first commit fails with `Command "lint-staged" not found` and the hook gives no hint why. pnpm includes devDeps by default, so plain `pnpm install` is correct — don't pass `--prod`.
+- Node ≥22 is required (pinned in [`.nvmrc`](../../.nvmrc)). The hooks themselves try to source `nvm use 22`, but the shell you invoke `git commit` from must already resolve `node` to v22+ or pnpm's corepack shim crashes on modern JS syntax before the hook ever runs.
 - `pnpm lint` / `pnpm typecheck` / `pnpm test` are the local equivalents of CI.
 - `pnpm doctor:local` is the "is my environment broken?" check — run it before chasing weird failures.
 - `pnpm local:up` brings up LocalStack + DynamoDB Local; don't try to debug data-layer changes without it.

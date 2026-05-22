@@ -41,8 +41,10 @@ Full discussion of these principles (read only if designing new harness pieces o
 
 ## Commands you'll use
 
+**First thing in a fresh worktree, always:** `pnpm install`. It pulls **all** dependencies — including the dev tools the git hooks invoke (`lint-staged`, `husky`, `eslint`, `prettier`, `dependency-cruiser`). Skip this and your first `git commit` fails with `Command "lint-staged" not found`. pnpm installs devDependencies by default; do **not** pass `--prod` or set `NODE_ENV=production` locally. The hooks also require Node ≥22 (see [`.nvmrc`](.nvmrc)) — `nvm use` or `mise use` before installing.
+
 ```bash
-pnpm install                     # bootstrap
+pnpm install                     # bootstrap — run this first; installs devDependencies (required for hooks)
 pnpm local:up                    # docker compose + LocalStack + DynamoDB Local
 pnpm doctor:local                # green/red status table
 pnpm dev                         # all packages in dev mode
