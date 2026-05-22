@@ -62,6 +62,7 @@ Each link below answers one question in one screen. Pattern-match against the qu
 
 ## I'm trying to understand "why X?"
 
+- [Harness engineering principles](conventions/harness-engineering.md) — why the repo is shaped the way it is and the operating rules behind the linters/schemas/CI. Read only if you're designing new harness pieces or debating a rule.
 - [Past architecture decisions (ADRs)](adr/README.md) — append-only log of decisions and their reasoning.
 - [Phase plans](phases/README.md) — what each project phase delivers and why.
 
