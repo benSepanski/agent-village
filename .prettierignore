@@ -8,3 +8,6 @@ pnpm-lock.yaml
 **/coverage/
 **/playwright-report/
 **/.turbo/
+
+# Local agent-harness config (Claude Code worktree settings, etc.).
+.claude/
