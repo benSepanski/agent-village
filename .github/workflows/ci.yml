@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   verify:
-    name: lint + typecheck + test + synth
+    name: lint_typecheck_test_synth
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
