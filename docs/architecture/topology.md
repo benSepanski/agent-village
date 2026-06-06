@@ -5,19 +5,19 @@ scheduled runner).
 
 ## The AWS services in one line each
 
-| Service                 | Role here                                                                                  |
-| ----------------------- | ------------------------------------------------------------------------------------------ |
-| **CloudFront**          | AWS's CDN. Caches and serves the SPA worldwide over HTTPS.                                 |
-| **S3**                  | Object storage. Holds the built SPA bundle (`index.html` + JS/CSS).                        |
-| **API Gateway (HTTP API)** | The public HTTPS front door for the API. Verifies the Cognito JWT on every request.    |
-| **Lambda (api)**        | Per-route serverless functions. One Lambda per API handler.                                |
-| **Lambda (runner)**     | Serverless function that runs an agent — invoked by the scheduler or by `run-now`.         |
-| **DynamoDB**            | Serverless key-value database. Stores users, agents, and runs.                             |
-| **Secrets Manager**     | Encrypted secret storage. One secret per agent, holding that agent's Anthropic API key.    |
-| **EventBridge Scheduler** | AWS's cron-as-a-service. One schedule per agent, invoking the runner Lambda.             |
-| **Cognito**             | Managed user pool + auth. Issues JWTs the API Gateway verifies.                            |
-| **CloudWatch**          | Logs, metrics, alarms.                                                                     |
-| **SNS**                 | Pub/sub. The alarm topic that emails you when something breaks.                            |
+| Service                    | Role here                                                                               |
+| -------------------------- | --------------------------------------------------------------------------------------- |
+| **CloudFront**             | AWS's CDN. Caches and serves the SPA worldwide over HTTPS.                              |
+| **S3**                     | Object storage. Holds the built SPA bundle (`index.html` + JS/CSS).                     |
+| **API Gateway (HTTP API)** | The public HTTPS front door for the API. Verifies the Cognito JWT on every request.     |
+| **Lambda (api)**           | Per-route serverless functions. One Lambda per API handler.                             |
+| **Lambda (runner)**        | Serverless function that runs an agent — invoked by the scheduler or by `run-now`.      |
+| **DynamoDB**               | Serverless key-value database. Stores users, agents, and runs.                          |
+| **Secrets Manager**        | Encrypted secret storage. One secret per agent, holding that agent's Anthropic API key. |
+| **EventBridge Scheduler**  | AWS's cron-as-a-service. One schedule per agent, invoking the runner Lambda.            |
+| **Cognito**                | Managed user pool + auth. Issues JWTs the API Gateway verifies.                         |
+| **CloudWatch**             | Logs, metrics, alarms.                                                                  |
+| **SNS**                    | Pub/sub. The alarm topic that emails you when something breaks.                         |
 
 ## Browser path
 

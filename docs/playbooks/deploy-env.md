@@ -18,14 +18,14 @@ which is waiting for CloudFront).
 
 When idle, this MVP runs almost entirely inside the AWS Free Tier:
 
-| Service          | Free tier covers                  | After that                   |
-| ---------------- | --------------------------------- | ---------------------------- |
-| Lambda           | 1M invocations/mo                 | ~$0.20 per million           |
-| DynamoDB         | 25 GB + 25 WCU/RCU on-demand      | Pennies per million requests |
-| CloudFront + S3  | ~1 TB egress/mo, 5 GB storage     | Pennies                      |
-| Cognito          | 50k monthly active users          | $0.0055/MAU                  |
-| CloudWatch Logs  | 5 GB/mo ingest, 5 GB/mo storage   | $0.50/GB                     |
-| Secrets Manager  | none                              | **$0.40/secret/month** (one per agent) |
+| Service         | Free tier covers                | After that                             |
+| --------------- | ------------------------------- | -------------------------------------- |
+| Lambda          | 1M invocations/mo               | ~$0.20 per million                     |
+| DynamoDB        | 25 GB + 25 WCU/RCU on-demand    | Pennies per million requests           |
+| CloudFront + S3 | ~1 TB egress/mo, 5 GB storage   | Pennies                                |
+| Cognito         | 50k monthly active users        | $0.0055/MAU                            |
+| CloudWatch Logs | 5 GB/mo ingest, 5 GB/mo storage | $0.50/GB                               |
+| Secrets Manager | none                            | **$0.40/secret/month** (one per agent) |
 
 The dominant cost in practice is the **Anthropic API itself**, which is
 billed by Anthropic, not AWS. Each agent has its own `spendLimitUsd`
@@ -157,17 +157,21 @@ In the AWS Console, do this twice — once for `dev`, once for `prod`:
      ```json
      {
        "Version": "2012-10-17",
-       "Statement": [{
-         "Effect": "Allow",
-         "Principal": { "Federated": "arn:aws:iam::<account>:oidc-provider/token.actions.githubusercontent.com" },
-         "Action": "sts:AssumeRoleWithWebIdentity",
-         "Condition": {
-           "StringEquals": {
-             "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-             "token.actions.githubusercontent.com:sub": "repo:<your-gh-username>/agent-village:environment:dev"
+       "Statement": [
+         {
+           "Effect": "Allow",
+           "Principal": {
+             "Federated": "arn:aws:iam::<account>:oidc-provider/token.actions.githubusercontent.com"
+           },
+           "Action": "sts:AssumeRoleWithWebIdentity",
+           "Condition": {
+             "StringEquals": {
+               "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+               "token.actions.githubusercontent.com:sub": "repo:<your-gh-username>/agent-village:environment:dev"
+             }
            }
          }
-       }]
+       ]
      }
      ```
      Use `:environment:prod` for the prod role's trust policy.
@@ -199,10 +203,10 @@ In the AWS Console, do this twice — once for `dev`, once for `prod`:
 
 ## Routine deploys
 
-| Env    | Trigger                                            | Workflow                                                  |
-| ------ | -------------------------------------------------- | --------------------------------------------------------- |
+| Env    | Trigger                                            | Workflow                                                             |
+| ------ | -------------------------------------------------- | -------------------------------------------------------------------- |
 | `dev`  | Push to `main`                                     | [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) |
-| `prod` | Push a git tag `v*`, then approve in the GitHub UI | same file                                                 |
+| `prod` | Push a git tag `v*`, then approve in the GitHub UI | same file                                                            |
 
 You can also trigger either manually: **Actions → Deploy → Run workflow**.
 
@@ -223,13 +227,13 @@ You can also trigger either manually: **Actions → Deploy → Run workflow**.
 
 ## Watching cost and health (everyday operation)
 
-| What                  | Where to look                                                                                  |
-| --------------------- | ---------------------------------------------------------------------------------------------- |
-| Current month's bill  | AWS Console → **Billing and Cost Management → Bills**                                          |
-| Cost trend graphs     | AWS Console → **Billing → Cost Explorer**                                                      |
-| Budget status         | AWS Console → **Billing → Budgets**. `MonitoringStack` creates `agent-village-<env>-monthly`.  |
-| Alarm state           | AWS Console → **CloudWatch → Alarms**                                                          |
-| Per-agent Anthropic spend | The agent detail page in the SPA (Phase 1)                                                 |
+| What                      | Where to look                                                                                 |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| Current month's bill      | AWS Console → **Billing and Cost Management → Bills**                                         |
+| Cost trend graphs         | AWS Console → **Billing → Cost Explorer**                                                     |
+| Budget status             | AWS Console → **Billing → Budgets**. `MonitoringStack` creates `agent-village-<env>-monthly`. |
+| Alarm state               | AWS Console → **CloudWatch → Alarms**                                                         |
+| Per-agent Anthropic spend | The agent detail page in the SPA (Phase 1)                                                    |
 
 You'll also receive emails (at `alarmEmail`) when:
 
