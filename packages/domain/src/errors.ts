@@ -27,6 +27,30 @@ export class AgentNotFoundError extends Error {
   }
 }
 
+export class RunNotFoundError extends Error {
+  readonly statusCode = 404;
+  readonly details: { agentId: string; runId: string };
+
+  constructor(agentId: string, runId: string) {
+    super(`run not found: ${runId}`);
+    this.name = 'RunNotFoundError';
+    this.details = { agentId, runId };
+  }
+}
+
+export class ReplayPromptMismatchError extends Error {
+  readonly statusCode = 409;
+  readonly details: { agentId: string; runId: string };
+
+  constructor(agentId: string, runId: string) {
+    super(
+      `cannot replay run ${runId}: the agent's system prompt has changed since the original run`,
+    );
+    this.name = 'ReplayPromptMismatchError';
+    this.details = { agentId, runId };
+  }
+}
+
 export class InvalidScheduleError extends Error {
   readonly statusCode = 400;
   readonly details: { schedule: string; reason?: string };

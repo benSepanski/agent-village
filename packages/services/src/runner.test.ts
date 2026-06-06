@@ -1,13 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SpendLimitExceededError } from '@agent-village/domain';
+import {
+  AgentNotFoundError,
+  ReplayPromptMismatchError,
+  RunNotFoundError,
+  SpendLimitExceededError,
+  hashSystemPrompt,
+} from '@agent-village/domain';
 
 const { agentRepoMock, runRepoMock, secretsMock } = vi.hoisted(() => ({
   agentRepoMock: {
+    getAgent: vi.fn(),
     getAgentById: vi.fn(),
     reserveSpend: vi.fn(),
     finalizeSpend: vi.fn(),
   },
-  runRepoMock: { append: vi.fn() },
+  runRepoMock: { append: vi.fn(), getOne: vi.fn() },
   secretsMock: { getAnthropicKey: vi.fn() },
 }));
 
@@ -21,6 +28,7 @@ vi.mock('@agent-village/data', () => ({
 import { executeRun, setAnthropicFactory } from './runner.js';
 
 const AGENT_ID = '01HZ1234567890ABCDEFGHJKMN';
+const ORIG_RUN_ID = '01HZN0PQRSTVWXYZ0123456789';
 const SUB = 'cog-sub-abc';
 const SECRET_ARN = 'arn:aws:secretsmanager:us-east-1:0:secret:foo';
 
@@ -51,6 +59,7 @@ const anthropicClient = { messages: { create: vi.fn() } };
 beforeEach(() => {
   Object.values(agentRepoMock).forEach((m) => m.mockReset());
   runRepoMock.append.mockReset();
+  runRepoMock.getOne.mockReset();
   secretsMock.getAnthropicKey.mockReset();
   anthropicClient.messages.create.mockReset();
   setAnthropicFactory(() => anthropicClient as never);
@@ -139,5 +148,92 @@ describe('executeRun (anthropic error)', () => {
     expect(agentRepoMock.finalizeSpend).toHaveBeenCalled();
     expect(runRepoMock.append.mock.calls[0]![0].error).toContain('API down');
     expect(runRepoMock.append.mock.calls[0]![0].output).toBeNull();
+  });
+});
+
+describe('executeRun (ownership)', () => {
+  it('loads the agent owner-scoped when ownerSub is provided', async () => {
+    agentRepoMock.getAgent.mockResolvedValue(agentFixture);
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    secretsMock.getAnthropicKey.mockResolvedValue('sk-ant-key');
+    anthropicClient.messages.create.mockResolvedValue(anthropicResponse);
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+    runRepoMock.append.mockResolvedValue(undefined);
+
+    await executeRun({ agentId: AGENT_ID, ownerSub: SUB });
+
+    expect(agentRepoMock.getAgent).toHaveBeenCalledWith(SUB, AGENT_ID);
+    expect(agentRepoMock.getAgentById).not.toHaveBeenCalled();
+  });
+
+  it('rejects a run for an agent the caller does not own', async () => {
+    agentRepoMock.getAgent.mockResolvedValue(null);
+
+    await expect(
+      executeRun({ agentId: AGENT_ID, ownerSub: 'someone-else' }),
+    ).rejects.toBeInstanceOf(AgentNotFoundError);
+    expect(agentRepoMock.reserveSpend).not.toHaveBeenCalled();
+  });
+});
+
+describe('executeRun (reservation refund)', () => {
+  it('refunds the reservation when secret fetch throws before finalize', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(agentFixture);
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+    secretsMock.getAnthropicKey.mockRejectedValue(new Error('secrets unavailable'));
+
+    await expect(executeRun({ agentId: AGENT_ID })).rejects.toThrow('secrets unavailable');
+
+    expect(agentRepoMock.finalizeSpend).toHaveBeenCalledTimes(1);
+    expect(agentRepoMock.finalizeSpend.mock.calls[0]![0].deltaUsd).toBeLessThan(0);
+    expect(runRepoMock.append).not.toHaveBeenCalled();
+  });
+});
+
+describe('executeRun (replay)', () => {
+  const okResponseSetup = (): void => {
+    agentRepoMock.getAgentById.mockResolvedValue(agentFixture);
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    secretsMock.getAnthropicKey.mockResolvedValue('sk-ant-key');
+    anthropicClient.messages.create.mockResolvedValue(anthropicResponse);
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+    runRepoMock.append.mockResolvedValue(undefined);
+  };
+
+  it('records lineage when the original prompt still matches', async () => {
+    okResponseSetup();
+    runRepoMock.getOne.mockResolvedValue({
+      id: ORIG_RUN_ID,
+      systemPromptHash: hashSystemPrompt(agentFixture.systemPrompt),
+    });
+
+    await executeRun({ agentId: AGENT_ID, replayOfRunId: ORIG_RUN_ID });
+
+    expect(runRepoMock.getOne).toHaveBeenCalledWith(AGENT_ID, ORIG_RUN_ID);
+    expect(runRepoMock.append.mock.calls[0]![0].replayOfRunId).toBe(ORIG_RUN_ID);
+  });
+
+  it('throws when the original run no longer exists', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(agentFixture);
+    runRepoMock.getOne.mockResolvedValue(null);
+
+    await expect(
+      executeRun({ agentId: AGENT_ID, replayOfRunId: ORIG_RUN_ID }),
+    ).rejects.toBeInstanceOf(RunNotFoundError);
+    expect(agentRepoMock.reserveSpend).not.toHaveBeenCalled();
+  });
+
+  it('throws when the system prompt has changed since the original run', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(agentFixture);
+    runRepoMock.getOne.mockResolvedValue({
+      id: ORIG_RUN_ID,
+      systemPromptHash: 'sha256:stale',
+    });
+
+    await expect(
+      executeRun({ agentId: AGENT_ID, replayOfRunId: ORIG_RUN_ID }),
+    ).rejects.toBeInstanceOf(ReplayPromptMismatchError);
+    expect(agentRepoMock.reserveSpend).not.toHaveBeenCalled();
   });
 });

@@ -142,7 +142,11 @@ describe('POST /agents/{id}/run-now', () => {
       evt({ pathParameters: { id: AGENT_ID }, body: JSON.stringify({ dryRun: true }) }),
     );
     expect(res).toMatchObject({ statusCode: 202 });
-    expect(runner.executeRun).toHaveBeenCalledWith({ agentId: AGENT_ID, dryRun: true });
+    expect(runner.executeRun).toHaveBeenCalledWith({
+      agentId: AGENT_ID,
+      ownerSub: SUB,
+      dryRun: true,
+    });
   });
 });
 

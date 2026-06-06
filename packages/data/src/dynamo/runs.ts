@@ -56,17 +56,26 @@ export async function listForAgent(
 
 export async function getOne(agentId: AgentId, runId: RunId): Promise<Run | null> {
   const { tableName } = getConfig();
-  const res = await getDocumentClient().send(
-    new QueryCommand({
-      TableName: tableName,
-      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :skPrefix)',
-      ExpressionAttributeValues: {
-        ':pk': agentPk(agentId),
-        ':skPrefix': RUN_SK_PREFIX,
-      },
-      ScanIndexForward: false,
-    }),
-  );
-  const match = (res.Items ?? []).find((item) => item['id'] === runId);
-  return match ? RunSchema.parse(match) : null;
+  const client = getDocumentClient();
+  // The run id alone can't reconstruct the createdAt-prefixed sort key, so we
+  // scan the partition. Paginate so a match beyond the first page is still found.
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const res = await client.send(
+      new QueryCommand({
+        TableName: tableName,
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :skPrefix)',
+        ExpressionAttributeValues: {
+          ':pk': agentPk(agentId),
+          ':skPrefix': RUN_SK_PREFIX,
+        },
+        ScanIndexForward: false,
+        ExclusiveStartKey: exclusiveStartKey,
+      }),
+    );
+    const match = (res.Items ?? []).find((item) => item['id'] === runId);
+    if (match) return RunSchema.parse(match);
+    exclusiveStartKey = res.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+  return null;
 }

@@ -20,6 +20,8 @@ export const RunSchema = z.object({
   model: AnthropicModel,
   systemPromptHash: z.string().min(1),
   dryRun: z.boolean(),
+  /** When this run was triggered as a replay, the id of the original run. */
+  replayOfRunId: RunId.nullable().default(null),
   createdAt: z.string().datetime(),
 });
 export type Run = z.infer<typeof RunSchema>;

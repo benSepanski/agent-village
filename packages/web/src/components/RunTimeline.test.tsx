@@ -20,6 +20,7 @@ const baseRun: Run = {
   model: 'claude-opus-4-7',
   systemPromptHash: 'sha256:abc',
   dryRun: false,
+  replayOfRunId: null,
   createdAt: '2026-05-16T12:00:00.000Z',
 };
 

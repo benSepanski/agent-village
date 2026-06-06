@@ -44,6 +44,40 @@ export function getSchedulingConfig(): SchedulingConfig {
 
 const scheduleName = (agentId: AgentId): string => `agent-${agentId}`;
 
+const DOW_DAYS_IN_WEEK = 7;
+
+/**
+ * Remap a single day-of-week token from Unix numbering (0-6, Sunday=0, also 7)
+ * to EventBridge numbering (1-7, Sunday=1). Day names (SUN-SAT), `*` and `?`
+ * carry the same meaning in both dialects and pass through unchanged.
+ */
+function remapDowToken(token: string): string {
+  if (/^\d+$/.test(token)) {
+    return String((Number(token) % DOW_DAYS_IN_WEEK) + 1);
+  }
+  return token;
+}
+
+/** Remap the day, but preserve cron operators (`,` `-` `/` `#` `L`) around numbers. */
+function remapDowField(field: string): string {
+  if (field === '*' || field === '?') return field;
+  return field
+    .split(',')
+    .map((part) => {
+      const slash = part.indexOf('/');
+      if (slash !== -1) return remapDowField(part.slice(0, slash)) + part.slice(slash);
+      const hash = part.indexOf('#');
+      if (hash !== -1) return remapDowToken(part.slice(0, hash)) + part.slice(hash);
+      if (part.endsWith('L')) return remapDowToken(part.slice(0, -1)) + 'L';
+      const dash = part.indexOf('-');
+      if (dash > 0) {
+        return `${remapDowToken(part.slice(0, dash))}-${remapDowToken(part.slice(dash + 1))}`;
+      }
+      return remapDowToken(part);
+    })
+    .join(',');
+}
+
 /** Standard 5-field cron → EventBridge 6-field cron(...). Passes through cron(...) and rate(...). */
 export function toEventBridgeExpression(expr: string): string {
   if (expr.startsWith('cron(') || expr.startsWith('rate(')) return expr;
@@ -59,6 +93,8 @@ export function toEventBridgeExpression(expr: string): string {
   if (dom === '*' && dow === '*') dow = '?';
   else if (dom === '*') dom = '?';
   else if (dow === '*') dow = '?';
+  // Unix DOW (Sun=0) and EventBridge DOW (Sun=1) differ; remap numeric days.
+  dow = remapDowField(dow);
   return `cron(${min} ${hour} ${dom} ${month} ${dow} *)`;
 }
 
