@@ -59,7 +59,9 @@ describe('getAccessToken', () => {
 
   it('uses the keychain blob when available', async () => {
     const entry = makeEntry({ password: JSON.stringify(SAMPLE) });
-    mocks.EntryCtor.mockImplementation(() => entry);
+    mocks.EntryCtor.mockImplementation(function () {
+      return entry;
+    });
     const { getAccessToken } = await import('./auth.js');
     expect(await getAccessToken()).toBe('tok-123');
     expect(entry.getPassword).toHaveBeenCalled();
@@ -68,7 +70,9 @@ describe('getAccessToken', () => {
 
   it('migrates the legacy file blob into the keychain on first use', async () => {
     const entry = makeEntry({ password: null });
-    mocks.EntryCtor.mockImplementation(() => entry);
+    mocks.EntryCtor.mockImplementation(function () {
+      return entry;
+    });
     mocks.readFile.mockResolvedValue(JSON.stringify(SAMPLE));
     const { getAccessToken } = await import('./auth.js');
     expect(await getAccessToken()).toBe('tok-123');
@@ -77,7 +81,7 @@ describe('getAccessToken', () => {
   });
 
   it('warns once and falls back to the file when the keychain backend is unavailable', async () => {
-    mocks.EntryCtor.mockImplementation(() => {
+    mocks.EntryCtor.mockImplementation(function () {
       throw new Error('native binding missing');
     });
     mocks.readFile.mockResolvedValue(JSON.stringify(SAMPLE));
@@ -89,7 +93,9 @@ describe('getAccessToken', () => {
 
   it('throws an actionable error when no credentials are available anywhere', async () => {
     const entry = makeEntry({ password: null });
-    mocks.EntryCtor.mockImplementation(() => entry);
+    mocks.EntryCtor.mockImplementation(function () {
+      return entry;
+    });
     const enoent = Object.assign(new Error('not found'), { code: 'ENOENT' });
     mocks.readFile.mockRejectedValue(enoent);
     const { getAccessToken } = await import('./auth.js');
