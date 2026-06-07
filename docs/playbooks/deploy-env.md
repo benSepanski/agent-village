@@ -58,14 +58,20 @@ never have to create or paste a long-lived access key.
 # macOS
 brew install awscli
 # or download from https://aws.amazon.com/cli
-# Already have v1? Upgrade — `aws --version` should report 2.x.
 ```
+
+The recommended `aws login` flow below needs a **recent** v2 — check
+with `aws --version` and make sure it reports **2.32.0 or newer**
+(`aws login` was added in 2.32.0; older v2 installs will reject it with
+"Invalid choice"). `brew upgrade awscli` or re-running the installer
+bumps it.
 
 Then sign in. Pick whichever matches how you log into the console:
 
 ```bash
-# Recommended: reuse your console credentials, no access key needed.
-# Opens a browser to your AWS sign-in, then hands the session to the CLI.
+# Recommended (CLI ≥ 2.32.0): reuse your console credentials, no access
+# key needed. Opens a browser to sign in, then caches a short-lived
+# session the CLI auto-refreshes (up to 12h).
 aws login
 
 # If your org uses IAM Identity Center (SSO):
@@ -74,15 +80,13 @@ aws sso login
 aws sts get-caller-identity   # should print your account id — confirms login
 ```
 
-> **Prefer not to install anything?** Use **AWS CloudShell**, a
-> browser-based terminal that comes pre-authenticated with your console
-> credentials and the AWS CLI already installed. In the AWS Console,
-> click the **CloudShell** icon (the `>_` terminal icon in the top bar)
-> and run the commands in this playbook there. `git`, `node`, and `pnpm`
-> are available, so you can clone this repo and deploy without touching
-> your laptop.
+> **Permissions for `aws login`:** an IAM user needs the
+> `SignInLocalDevelopmentAccess` managed policy attached (root users
+> need nothing extra). Without it, `aws login` signs in but later
+> commands fail with `AccessDenied`.
 
-> **Last resort — static access keys.** If neither option works for you,
+> **Last resort — static access keys.** If you can't upgrade the CLI or
+> `aws login` isn't an option for you,
 > you can `aws configure` and paste an access key/secret from your IAM
 > user. This stores a long-lived credential on disk, so avoid it unless
 > you have to, and rotate/delete the key when you're done.
