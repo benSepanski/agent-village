@@ -51,17 +51,45 @@ AWS's own getting-started guide walks you through this.
 
 ### 2. The AWS CLI installed and logged in
 
+Use **AWS CLI v2** — it can reuse your existing console sign-in, so you
+never have to create or paste a long-lived access key.
+
 ```bash
 # macOS
 brew install awscli
 # or download from https://aws.amazon.com/cli
+```
 
-aws configure          # paste an access key/secret from your IAM user
-# or, if your org uses IAM Identity Center:
+The recommended `aws login` flow below needs a **recent** v2 — check
+with `aws --version` and make sure it reports **2.32.0 or newer**
+(`aws login` was added in 2.32.0; older v2 installs will reject it with
+"Invalid choice"). `brew upgrade awscli` or re-running the installer
+bumps it.
+
+Then sign in. Pick whichever matches how you log into the console:
+
+```bash
+# Recommended (CLI ≥ 2.32.0): reuse your console credentials, no access
+# key needed. Opens a browser to sign in, then caches a short-lived
+# session the CLI auto-refreshes (up to 12h).
+aws login
+
+# If your org uses IAM Identity Center (SSO):
 aws sso login
 
 aws sts get-caller-identity   # should print your account id — confirms login
 ```
+
+> **Permissions for `aws login`:** an IAM user needs the
+> `SignInLocalDevelopmentAccess` managed policy attached (root users
+> need nothing extra). Without it, `aws login` signs in but later
+> commands fail with `AccessDenied`.
+
+> **Last resort — static access keys.** If you can't upgrade the CLI or
+> `aws login` isn't an option for you,
+> you can `aws configure` and paste an access key/secret from your IAM
+> user. This stores a long-lived credential on disk, so avoid it unless
+> you have to, and rotate/delete the key when you're done.
 
 ### 3. Optional: a GitHub fork of this repo
 
