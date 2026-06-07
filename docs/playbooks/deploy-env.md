@@ -51,17 +51,41 @@ AWS's own getting-started guide walks you through this.
 
 ### 2. The AWS CLI installed and logged in
 
+Use **AWS CLI v2** — it can reuse your existing console sign-in, so you
+never have to create or paste a long-lived access key.
+
 ```bash
 # macOS
 brew install awscli
 # or download from https://aws.amazon.com/cli
+# Already have v1? Upgrade — `aws --version` should report 2.x.
+```
 
-aws configure          # paste an access key/secret from your IAM user
-# or, if your org uses IAM Identity Center:
+Then sign in. Pick whichever matches how you log into the console:
+
+```bash
+# Recommended: reuse your console credentials, no access key needed.
+# Opens a browser to your AWS sign-in, then hands the session to the CLI.
+aws login
+
+# If your org uses IAM Identity Center (SSO):
 aws sso login
 
 aws sts get-caller-identity   # should print your account id — confirms login
 ```
+
+> **Prefer not to install anything?** Use **AWS CloudShell**, a
+> browser-based terminal that comes pre-authenticated with your console
+> credentials and the AWS CLI already installed. In the AWS Console,
+> click the **CloudShell** icon (the `>_` terminal icon in the top bar)
+> and run the commands in this playbook there. `git`, `node`, and `pnpm`
+> are available, so you can clone this repo and deploy without touching
+> your laptop.
+
+> **Last resort — static access keys.** If neither option works for you,
+> you can `aws configure` and paste an access key/secret from your IAM
+> user. This stores a long-lived credential on disk, so avoid it unless
+> you have to, and rotate/delete the key when you're done.
 
 ### 3. Optional: a GitHub fork of this repo
 
