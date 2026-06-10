@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { agentRepo, runRepo, secrets } from '@agent-village/data';
 import {
   AgentNotFoundError,
+  ReplayPromptMismatchError,
+  RunNotFoundError,
   SpendLimitExceededError,
   actualCost,
   estimateCost,
@@ -43,6 +45,11 @@ export interface ExecuteRunInput {
   agentId: AgentId;
   dryRun?: boolean;
   replayOfRunId?: RunId;
+  /**
+   * When set (user-initiated runs), the agent is loaded owner-scoped so callers
+   * can only run their own agents. Omit for trusted schedule-driven invocations.
+   */
+  ownerSub?: UserId;
 }
 
 export interface ExecuteRunResult {
@@ -57,6 +64,7 @@ interface RunContext {
   startedAt: number;
   dryRun: boolean;
   replayOfRunId?: RunId;
+  ownerSub?: UserId;
   maxTokens: number;
 }
 
@@ -90,11 +98,17 @@ function makeContext(input: ExecuteRunInput): RunContext {
     maxTokens: input.dryRun === true ? DRY_RUN_MAX_TOKENS : MAX_TOKENS,
   };
   if (input.replayOfRunId !== undefined) ctx.replayOfRunId = input.replayOfRunId;
+  if (input.ownerSub !== undefined) ctx.ownerSub = input.ownerSub;
   return ctx;
 }
 
 async function loadAgent(ctx: RunContext): Promise<Agent> {
-  const agent = await agentRepo.getAgentById(ctx.agentId);
+  // Owner-scoped read for user-initiated runs; unscoped lookup for the trusted
+  // schedule path. A missing OR non-owned agent both surface as "not found".
+  const agent =
+    ctx.ownerSub !== undefined
+      ? await agentRepo.getAgent(ctx.ownerSub, ctx.agentId)
+      : await agentRepo.getAgentById(ctx.agentId);
   if (!agent) throw new AgentNotFoundError(ctx.agentId);
   logger.info({
     event: 'agent.run.config_loaded',
@@ -105,8 +119,21 @@ async function loadAgent(ctx: RunContext): Promise<Agent> {
   return agent;
 }
 
-async function reserve(ctx: RunContext, agent: Agent): Promise<boolean> {
-  const estimateUsd = estimateCost(agent.model, ctx.maxTokens);
+/**
+ * Validate a replay request: the original run must exist for this agent, and the
+ * agent's current system prompt must still hash to what the original captured —
+ * otherwise the replay would not reproduce the original conditions.
+ */
+async function verifyReplay(ctx: RunContext, agent: Agent): Promise<void> {
+  if (ctx.replayOfRunId === undefined) return;
+  const original = await runRepo.getOne(agent.id, ctx.replayOfRunId);
+  if (!original) throw new RunNotFoundError(agent.id, ctx.replayOfRunId);
+  if (original.systemPromptHash !== hashSystemPrompt(agent.systemPrompt)) {
+    throw new ReplayPromptMismatchError(agent.id, ctx.replayOfRunId);
+  }
+}
+
+async function reserve(ctx: RunContext, agent: Agent, estimateUsd: number): Promise<boolean> {
   try {
     await agentRepo.reserveSpend({ agentId: agent.id, ownerSub: agent.ownerSub, estimateUsd });
     logger.info({
@@ -192,9 +219,17 @@ function buildRun(ctx: RunContext, agent: Agent, result: CallResult): Run {
     model: agent.model,
     systemPromptHash: hashSystemPrompt(agent.systemPrompt),
     dryRun: ctx.dryRun,
+    replayOfRunId: ctx.replayOfRunId ?? null,
     createdAt: new Date(ctx.startedAt).toISOString(),
   });
 }
+
+/** Common structured-log fields for a run. */
+const runLog = (ctx: RunContext): { agentId: AgentId; runId: RunId; traceId: string } => ({
+  agentId: ctx.agentId,
+  runId: ctx.runId,
+  traceId: ctx.traceId,
+});
 
 async function appendRejected(ctx: RunContext, agent: Agent): Promise<Run> {
   const run = buildRun(ctx, agent, {
@@ -205,70 +240,75 @@ async function appendRejected(ctx: RunContext, agent: Agent): Promise<Run> {
     tokensOut: 0,
   });
   await runRepo.append(run);
-  logger.info({
-    event: 'agent.run.persisted',
-    agentId: agent.id,
-    runId: ctx.runId,
-    traceId: ctx.traceId,
-  });
+  logger.info({ event: 'agent.run.persisted', ...runLog(ctx) });
   return run;
 }
 
-async function appendCompleted(ctx: RunContext, agent: Agent, result: CallResult): Promise<Run> {
-  const estimateUsd = estimateCost(agent.model, ctx.maxTokens);
-  const run = buildRun(ctx, agent, result);
-  await agentRepo.finalizeSpend({
-    agentId: agent.id,
-    ownerSub: agent.ownerSub,
-    deltaUsd: run.costUsd - estimateUsd,
-  });
-  logger.info({
-    event: 'agent.run.spend_finalized',
-    agentId: agent.id,
-    runId: ctx.runId,
-    traceId: ctx.traceId,
-    metric: { 'spend.actual_usd': run.costUsd, 'spend.delta_usd': run.costUsd - estimateUsd },
-  });
-  await runRepo.append(run);
-  logger.info({
-    event: 'agent.run.persisted',
-    agentId: agent.id,
-    runId: ctx.runId,
-    traceId: ctx.traceId,
-  });
-  return run;
+/** Release a reservation that was never finalized (e.g. the call setup threw). */
+async function refundReservation(
+  ctx: RunContext,
+  agent: Agent,
+  estimateUsd: number,
+): Promise<void> {
+  try {
+    await agentRepo.finalizeSpend({
+      agentId: agent.id,
+      ownerSub: agent.ownerSub,
+      deltaUsd: -estimateUsd,
+    });
+    logger.warn({ event: 'agent.run.spend_refunded', ...runLog(ctx) });
+  } catch (refundErr) {
+    logger.error({ event: 'agent.run.spend_refund_failed', ...runLog(ctx), err: refundErr });
+  }
+}
+
+/**
+ * Run the Anthropic call, reconcile reserved spend against actual, and persist
+ * the run. Any failure before spend is finalized refunds the reservation, so it
+ * never leaks permanently into spendUsedUsd.
+ */
+async function executeReserved(ctx: RunContext, agent: Agent, estimateUsd: number): Promise<Run> {
+  let finalized = false;
+  try {
+    const apiKey = await secrets.getAnthropicKey(agent.anthropicSecretArn);
+    logger.info({ event: 'agent.run.secret_fetched', ...runLog(ctx) });
+    const run = buildRun(ctx, agent, await callAnthropic(ctx, agent, apiKey));
+    const deltaUsd = run.costUsd - estimateUsd;
+    await agentRepo.finalizeSpend({ agentId: agent.id, ownerSub: agent.ownerSub, deltaUsd });
+    finalized = true;
+    logger.info({
+      event: 'agent.run.spend_finalized',
+      ...runLog(ctx),
+      metric: { 'spend.actual_usd': run.costUsd, 'spend.delta_usd': deltaUsd },
+    });
+    await runRepo.append(run);
+    logger.info({ event: 'agent.run.persisted', ...runLog(ctx) });
+    return run;
+  } catch (err) {
+    if (!finalized) await refundReservation(ctx, agent, estimateUsd);
+    throw err;
+  }
 }
 
 export async function executeRun(input: ExecuteRunInput): Promise<ExecuteRunResult> {
   const ctx = makeContext(input);
   logger.info({
     event: 'agent.run.started',
-    agentId: ctx.agentId,
-    runId: ctx.runId,
-    traceId: ctx.traceId,
+    ...runLog(ctx),
     dryRun: ctx.dryRun,
     replayOfRunId: ctx.replayOfRunId ?? null,
   });
   const agent = await loadAgent(ctx);
-  const reserved = await reserve(ctx, agent);
-  if (!reserved) {
-    const run = await appendRejected(ctx, agent);
-    return { runId: run.id, status: run.status };
+  await verifyReplay(ctx, agent);
+  const estimateUsd = estimateCost(agent.model, ctx.maxTokens);
+  if (!(await reserve(ctx, agent, estimateUsd))) {
+    const rejected = await appendRejected(ctx, agent);
+    return { runId: rejected.id, status: rejected.status };
   }
-  const apiKey = await secrets.getAnthropicKey(agent.anthropicSecretArn);
-  logger.info({
-    event: 'agent.run.secret_fetched',
-    agentId: agent.id,
-    runId: ctx.runId,
-    traceId: ctx.traceId,
-  });
-  const result = await callAnthropic(ctx, agent, apiKey);
-  const run = await appendCompleted(ctx, agent, result);
+  const run = await executeReserved(ctx, agent, estimateUsd);
   logger.info({
     event: 'agent.run.completed',
-    agentId: agent.id,
-    runId: ctx.runId,
-    traceId: ctx.traceId,
+    ...runLog(ctx),
     status: run.status,
     metric: { 'run.cost_usd': run.costUsd, 'run.duration_ms': run.durationMs },
   });

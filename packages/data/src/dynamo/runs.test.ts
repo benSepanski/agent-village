@@ -82,4 +82,28 @@ describe('getOne', () => {
     mock.on(QueryCommand).resolves({ Items: [] });
     expect(await getOne(AGENT_ID, RUN_ID)).toBeNull();
   });
+
+  it('paginates past the first page to find a later match', async () => {
+    const other = { ...runItem, id: '01HZAAAAAAAAAAAAAAAAAAAAAA' };
+    mock
+      .on(QueryCommand)
+      .resolvesOnce({ Items: [other], LastEvaluatedKey: { pk: 'x', sk: 'y' } })
+      .resolvesOnce({ Items: [runItem] });
+    const run = await getOne(AGENT_ID, RUN_ID);
+    expect(run?.id).toBe(RUN_ID);
+    expect(mock.commandCalls(QueryCommand)).toHaveLength(2);
+    expect(mock.commandCalls(QueryCommand)[1]!.args[0].input.ExclusiveStartKey).toEqual({
+      pk: 'x',
+      sk: 'y',
+    });
+  });
+
+  it('returns null after exhausting all pages', async () => {
+    mock
+      .on(QueryCommand)
+      .resolvesOnce({ Items: [], LastEvaluatedKey: { pk: 'x', sk: 'y' } })
+      .resolvesOnce({ Items: [] });
+    expect(await getOne(AGENT_ID, RUN_ID)).toBeNull();
+    expect(mock.commandCalls(QueryCommand)).toHaveLength(2);
+  });
 });

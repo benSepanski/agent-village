@@ -57,6 +57,26 @@ describe('toEventBridgeExpression', () => {
     expect(toEventBridgeExpression('0 12 * * MON')).toBe('cron(0 12 ? * MON *)');
   });
 
+  it('remaps numeric Unix DOW (Sun=0) to EventBridge DOW (Sun=1)', () => {
+    // Unix Monday=1 → EventBridge Monday=2
+    expect(toEventBridgeExpression('0 9 * * 1')).toBe('cron(0 9 ? * 2 *)');
+    // Unix Sunday=0 → EventBridge Sunday=1
+    expect(toEventBridgeExpression('0 9 * * 0')).toBe('cron(0 9 ? * 1 *)');
+    // Unix Sunday=7 → EventBridge Sunday=1
+    expect(toEventBridgeExpression('0 9 * * 7')).toBe('cron(0 9 ? * 1 *)');
+  });
+
+  it('remaps numeric DOW inside ranges and lists', () => {
+    // Unix Mon-Fri (1-5) → EventBridge 2-6
+    expect(toEventBridgeExpression('0 9 * * 1-5')).toBe('cron(0 9 ? * 2-6 *)');
+    // Unix Sun,Sat (0,6) → EventBridge 1,7
+    expect(toEventBridgeExpression('0 9 * * 0,6')).toBe('cron(0 9 ? * 1,7 *)');
+  });
+
+  it('leaves day-of-week names untouched', () => {
+    expect(toEventBridgeExpression('0 9 * * MON-FRI')).toBe('cron(0 9 ? * MON-FRI *)');
+  });
+
   it('rejects expressions with the wrong field count', () => {
     expect(() => toEventBridgeExpression('* * * *')).toThrow();
   });
