@@ -5,10 +5,11 @@ import type { Table } from 'aws-cdk-lib/aws-dynamodb';
 import { Effect, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
-import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { LogGroup } from 'aws-cdk-lib/aws-logs';
 import { CfnScheduleGroup } from 'aws-cdk-lib/aws-scheduler';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from '../../config/index.js';
+import { toRetention } from './log-retention.js';
 
 export interface RunnerStackProps extends StackProps {
   readonly config: EnvConfig;
@@ -90,13 +91,4 @@ export class RunnerStack extends Stack {
     );
     return role;
   }
-}
-
-function toRetention(days: number): RetentionDays {
-  if (days <= 1) return RetentionDays.ONE_DAY;
-  if (days <= 3) return RetentionDays.THREE_DAYS;
-  if (days <= 7) return RetentionDays.ONE_WEEK;
-  if (days <= 14) return RetentionDays.TWO_WEEKS;
-  if (days <= 30) return RetentionDays.ONE_MONTH;
-  return RetentionDays.SIX_MONTHS;
 }

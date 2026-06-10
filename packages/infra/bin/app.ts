@@ -7,6 +7,7 @@ import { DataStack } from '../src/stacks/data-stack.js';
 import { AuthStack } from '../src/stacks/auth-stack.js';
 import { ApiStack } from '../src/stacks/api-stack.js';
 import { RunnerStack } from '../src/stacks/runner-stack.js';
+import { SandboxStack } from '../src/stacks/sandbox-stack.js';
 import { WebStack } from '../src/stacks/web-stack.js';
 import { MonitoringStack } from '../src/stacks/monitoring-stack.js';
 
@@ -36,6 +37,7 @@ const api = new ApiStack(app, `${config.prefix}-api`, {
   scheduleGroupName: runner.scheduleGroupName,
   schedulerInvokeRole: runner.schedulerInvokeRole,
 });
+const sandbox = new SandboxStack(app, `${config.prefix}-sandbox`, { env: stackEnv, config });
 const web = new WebStack(app, `${config.prefix}-web`, { env: stackEnv, config });
 const monitoring = new MonitoringStack(app, `${config.prefix}-monitoring`, {
   env: stackEnv,
@@ -43,7 +45,7 @@ const monitoring = new MonitoringStack(app, `${config.prefix}-monitoring`, {
   runnerFunction: runner.runnerFunction,
 });
 
-for (const stack of [data, auth, api, runner, web, monitoring]) {
+for (const stack of [data, auth, api, runner, sandbox, web, monitoring]) {
   Tags.of(stack).add('Project', 'agent-village');
   Tags.of(stack).add('Env', config.env);
 }
@@ -135,6 +137,43 @@ NagSuppressions.addStackSuppressions(runner, [
       'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/prod/agents/*/anthropic-key-*',
       'Resource::<TableCD117FA1.Arn>/index/*',
     ],
+  },
+]);
+NagSuppressions.addStackSuppressions(sandbox, [
+  {
+    id: 'AwsSolutions-S1',
+    reason:
+      'Workspace-bucket server access logs deferred: every object access goes through the sandbox entrypoint, which already emits structured sync events per run. Same posture as the SPA bucket.',
+  },
+  {
+    id: 'AwsSolutions-VPC7',
+    reason:
+      'VPC flow logs cost per-GB ingest with no consumer yet: sandbox tasks are ephemeral and all their traffic will be forced through the egress proxy (phase 2), which is where per-agent network audit will live.',
+  },
+  {
+    id: 'AwsSolutions-ECS4',
+    reason:
+      'Container Insights adds CloudWatch ingest cost; the structured-log envelope from the sandbox entrypoint already covers run observability at this scale.',
+  },
+  {
+    id: 'AwsSolutions-ECS2',
+    reason:
+      'The container environment variables are non-secret config only (env name, region, workspace bucket name). Secrets reach sandbox runs as short-lived STS/launcher-injected credentials, never as task-definition env vars.',
+  },
+  {
+    id: 'AwsSolutions-IAM5',
+    reason:
+      'The task role is intentionally scoped to the workspace bucket with object wildcards — it is the ceiling; each run is narrowed to its own user/agent prefix by an STS session policy from the launcher (phase 2). The S3 auto-delete handler is a CDK-internal custom resource.',
+  },
+  {
+    id: 'AwsSolutions-IAM4',
+    reason:
+      'The S3 auto-delete custom-resource handler (dev-only, bucket is RETAIN in prod) uses the CDK-managed AWSLambdaBasicExecutionRole.',
+  },
+  {
+    id: 'AwsSolutions-L1',
+    reason:
+      'The S3 auto-delete custom-resource handler runtime is chosen by CDK internally; we cannot override it.',
   },
 ]);
 NagSuppressions.addStackSuppressions(web, [
