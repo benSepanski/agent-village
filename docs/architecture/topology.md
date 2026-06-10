@@ -51,6 +51,9 @@ EventBridge Scheduler (per-agent cron)
 The runner is also invoked synchronously by `POST /agents/:id/run-now`
 from the API — same code path, just a different trigger.
 
+A second, containerized run path (Fargate sandbox + S3 workspaces) is
+being built in Phase 2 — see [sandbox-runs](sandbox-runs.md).
+
 ## Key invariants
 
 - The runner never holds API keys in memory across invocations.

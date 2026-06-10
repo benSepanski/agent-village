@@ -53,12 +53,13 @@ Each link below answers one question in one screen. Pattern-match against the qu
 
 ## I'm working on infrastructure or deploy
 
-| Question                       | Answer                                                                              |
-| ------------------------------ | ----------------------------------------------------------------------------------- |
-| What environments exist?       | [environments](architecture/environments.md)                                        |
-| How are costs guarded?         | [cost-guards](architecture/cost-guards.md)                                          |
-| How do I deploy?               | [deploy-env](playbooks/deploy-env.md)                                               |
-| What permissions does CI need? | [deploy-env#one-time-setup](playbooks/deploy-env.md#one-time-setup-per-environment) |
+| Question                        | Answer                                                                              |
+| ------------------------------- | ----------------------------------------------------------------------------------- |
+| What environments exist?        | [environments](architecture/environments.md)                                        |
+| How do sandboxed app runs work? | [sandbox-runs](architecture/sandbox-runs.md)                                        |
+| How are costs guarded?          | [cost-guards](architecture/cost-guards.md)                                          |
+| How do I deploy?                | [deploy-env](playbooks/deploy-env.md)                                               |
+| What permissions does CI need?  | [deploy-env#one-time-setup](playbooks/deploy-env.md#one-time-setup-per-environment) |
 
 ## I'm trying to understand "why X?"
 
@@ -70,4 +71,5 @@ Each link below answers one question in one screen. Pattern-match against the qu
 
 - [What Phase 0 delivered](phases/phase-0-harness.md) — the harness already in place.
 - [Phase 1 — MVP](phases/phase-1-mvp.md) — actionable spec for the next agent to execute.
-- [Phase 2+ roadmap](phases/phase-2-plus.md) — sketched, not detailed.
+- [Phase 2 — sandboxed application runs](phases/phase-2-sandbox-runs.md) — in progress; steps 01–03 landed.
+- [Phase 3+ roadmap](phases/phase-2-plus.md) — sketched, not detailed.

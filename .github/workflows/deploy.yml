@@ -54,6 +54,31 @@ jobs:
       - name: CDK deploy
         run: pnpm --filter @agent-village/infra deploy:dev
 
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up QEMU (arm64 emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # The sandbox task definition is ARM64 and resolves the :latest tag at
+      # RunTask time, so pushing after CDK deploy is safe (the ECR repo must
+      # exist first). provenance:false keeps ECR free of untagged attestation
+      # manifests that would eat into the repo's maxImageCount lifecycle rule.
+      - name: Build and push sandbox base image
+        uses: docker/build-push-action@v6
+        with:
+          context: packages/infra/sandbox-image
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/agent-village-dev-sandbox-base:latest
+            ${{ steps.ecr.outputs.registry }}/agent-village-dev-sandbox-base:${{ github.sha }}
+
       - name: Smoke E2E
         env:
           AV_E2E_BASE_URL: ${{ secrets.AV_DEV_URL }}
@@ -87,6 +112,27 @@ jobs:
 
       - name: CDK deploy
         run: pnpm --filter @agent-village/infra deploy:prod -- --require-approval never
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up QEMU (arm64 emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push sandbox base image
+        uses: docker/build-push-action@v6
+        with:
+          context: packages/infra/sandbox-image
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/agent-village-prod-sandbox-base:latest
+            ${{ steps.ecr.outputs.registry }}/agent-village-prod-sandbox-base:${{ github.sha }}
 
       - name: Smoke E2E
         env:

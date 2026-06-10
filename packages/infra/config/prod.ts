@@ -8,6 +8,8 @@ export const prodConfig: EnvConfig = {
   runnerMemoryMb: 512,
   apiMemoryMb: 384,
   logRetentionDays: 30,
+  sandboxTaskCpu: 512,
+  sandboxTaskMemoryMb: 1024,
   monthlyBudgetUsd: 20,
   alarmEmail: 'ben.sepanski@gmail.com',
 };

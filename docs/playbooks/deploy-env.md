@@ -238,6 +238,14 @@ In the AWS Console, do this twice — once for `dev`, once for `prod`:
 
 You can also trigger either manually: **Actions → Deploy → Run workflow**.
 
+After CDK finishes, the workflow also builds the **sandbox base image**
+([`packages/infra/sandbox-image/`](../../packages/infra/sandbox-image/),
+ARM64 via QEMU) and pushes it to the env's ECR repo as `latest` + the git
+SHA. The OIDC deploy role must be allowed to push to ECR —
+`AdministratorAccess` (step 3a) covers it; if you tightened the role, add
+`ecr:GetAuthorizationToken` plus push/pull on the
+`agent-village-<env>-sandbox-base` repository.
+
 ---
 
 ## Verifying a deploy worked
