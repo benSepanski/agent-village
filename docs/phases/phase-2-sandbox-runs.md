@@ -10,7 +10,7 @@ Architecture: [sandbox-runs](../architecture/sandbox-runs.md) ·
 | 01   | `ApplicationManifest` + `workspacePrefix` schemas in shared                                                                            | ✅     |
 | 02   | Sandbox base image (workspace-sync entrypoint, tested against a stubbed AWS CLI)                                                       | ✅     |
 | 03   | `SandboxStack`: versioned workspace bucket, ECR repo, NAT-less VPC + Fargate task                                                      | ✅     |
-| 04   | Base-image build & push to ECR in the deploy workflow                                                                                  | ⬜     |
+| 04   | Base-image build & push to ECR in the deploy workflow                                                                                  | ✅     |
 | 05   | Launcher: runner starts `RunTask` for manifest agents; per-run STS session policy scoped to `workspacePrefix`; one-run-per-agent guard | ⬜     |
 | 06   | Run lifecycle for async runs: task state → Run record updates; `sandbox.run.*` events surfaced in the run viewer                       | ⬜     |
 | 07   | Egress proxy (Fargate service) enforcing `egressAllow`; sandbox security group only reaches the proxy + DNS via the proxy              | ⬜     |
@@ -19,15 +19,17 @@ Architecture: [sandbox-runs](../architecture/sandbox-runs.md) ·
 
 ## Step notes
 
-- **04** — `docker build --platform linux/arm64` (task definition is ARM64);
-  tag `latest` plus the git SHA; push gated to `main` like the SPA deploy.
+- **04** — done in [`deploy.yml`](../../.github/workflows/deploy.yml): QEMU +
+  Buildx build for `linux/arm64` (the task definition is ARM64), pushed to the
+  env's ECR repo as `latest` + the git SHA after CDK deploy. The OIDC deploy
+  role needs ECR push permissions (covered by the playbook's default role).
 - **05** — launch via the existing runner Lambda so spend reservation and
   schedule handling stay one code path. The Anthropic key still goes to the
   app, but scoped to the run by Secrets Manager → STS injection, never baked
   into the task definition.
 - **07** — until this step lands, sandbox tasks have unrestricted egress;
   do not attach grants to untrusted workloads before 07+08 are done.
-- Steps 01–03 are deployed but inert: nothing launches the task definition
+- Steps 01–04 are deployed but inert: nothing launches the task definition
   until 05.
 
 After each step: `pnpm lint && pnpm typecheck && pnpm test` stays green, and
