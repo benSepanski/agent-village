@@ -5,6 +5,7 @@ Append-only log of architectural decisions. Never edit an existing ADR — write
 | ADR                                     | Title                                                 | Status   |
 | --------------------------------------- | ----------------------------------------------------- | -------- |
 | [0001](0001-typescript-cdk-dynamodb.md) | TypeScript everywhere, AWS CDK, DynamoDB single-table | Accepted |
+| [0002](0002-fargate-sandbox-runs.md)    | Sandboxed application runs on Fargate + S3 workspaces | Accepted |
 
 ## Adding a new ADR
 
