@@ -22,6 +22,10 @@ export const LOG_EVENTS = [
   'agent.run.failed',
   'schedule.upserted',
   'schedule.removed',
+  'sandbox.run.sync_down',
+  'sandbox.run.flush',
+  'sandbox.run.app_exited',
+  'sandbox.run.sync_up',
 ] as const;
 
 export type LogEvent = (typeof LOG_EVENTS)[number];
