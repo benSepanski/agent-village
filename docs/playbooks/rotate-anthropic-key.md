@@ -1,31 +1,32 @@
 # Playbook: rotate an agent's Anthropic API key
 
-Each agent's API key is a separate secret in AWS Secrets Manager,
-referenced by ARN on the agent's DDB record.
+Each agent's key is its own Secrets Manager secret at `agent-village/<env>/agents/<agentId>/anthropic-key` ([`secretName()` in `secrets/anthropic.ts`](../../packages/data/src/secrets/anthropic.ts)). The agent's DynamoDB record stores only the ARN; the runner fetches the value fresh on every run, so a rotation takes effect on the next run with no cache to invalidate.
 
-## Through the UI (preferred, Phase 1)
+## Through the UI
 
-1. Sign in to the deployed UI.
-2. Open the agent's detail page.
-3. Click "Rotate key" → paste the new key → save.
-4. The next scheduled or manual run uses the new key.
+1. Open the agent's detail page and scroll to the **Edit** form.
+2. Enter the new key in the "Anthropic API key" field (left blank, the field means "keep the current key" — see `toPatch()` in [`agents.$agentId.tsx`](../../packages/web/src/routes/agents.$agentId.tsx)).
+3. Save. The form sends `PATCH /agents/:id` with `anthropicApiKey`; the handler calls [`updateAgent()` in `services/agent.ts`](../../packages/services/src/agent.ts), which writes the new value to the **same secret** via `PutSecretValue` ([`rotateAnthropicKey()`](../../packages/data/src/secrets/anthropic.ts)). The ARN is unchanged, so the agent record needs no key update.
 
-The UI calls the API which:
+There is no dedicated rotation endpoint — rotation is a partial agent update.
 
-1. Writes the new value to the same Secrets Manager secret (`PutSecretValue`).
-2. The secret stays at the same ARN, so the agent record needs no update.
-3. Returns the new secret version id.
+## Through the API or CLI
+
+```bash
+curl -X PATCH "$API/agents/<agentId>" \
+  -H "Authorization: Bearer $ID_TOKEN" \
+  -d '{"anthropicApiKey": "sk-ant-..."}'
+```
+
+(The `village` CLI has no key-rotation command; use the UI or the API directly.)
 
 ## Through the AWS Console (emergency)
 
-1. Open Secrets Manager → find
-   `agent-village/<env>/agents/<agentId>/anthropic-key`.
-2. Set a new secret value.
-3. The runner Lambda will use it on the next invocation (no caching across
-   invocations).
+1. Secrets Manager → `agent-village/<env>/agents/<agentId>/anthropic-key`.
+2. **Retrieve secret value → Edit** → paste the new key → save.
+3. The next run picks it up — the runner calls `GetSecretValue` per invocation with no caching ([`executeReserved()` in `runner.ts`](../../packages/services/src/runner.ts)).
 
 ## After rotation
 
-- The next Run should succeed normally.
-- Failed runs caused by the old key will show as `status=error` with an
-  Anthropic 401; no replay is needed — the next scheduled run will work.
+- The next scheduled run, or a "Run now" from the agent page, should complete with `status=ok`.
+- Runs that failed on the revoked key show `status=error` with the Anthropic authentication error in the `error` field. No cleanup is needed; run records are append-only.

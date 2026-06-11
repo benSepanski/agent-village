@@ -2,17 +2,17 @@
 
 ## In DynamoDB
 
-- Runs are not deleted automatically in Phase 1.
-- Output and error fields are stored inline up to a per-env size cap (~10 KB dev, ~4 KB prod). Larger bodies are truncated with a marker and the full body is written to S3 (`s3://agent-village-{env}-runs/<runId>.json`); the run record stores the S3 key.
-
-## In S3
-
-- Bucket lifecycle policy (Phase 1 infra task): transition to Glacier after 90 days, expire after 365 days. Configurable per env.
+- Run records are never deleted automatically — there is no TTL attribute and no cleanup job. They accumulate indefinitely.
+- `output` and `error` are stored inline on the run item as nullable strings ([`RunSchema`](../../packages/shared/src/schemas/run.ts)). There is no overflow path to S3; output size is naturally bounded by the runner's `max_tokens` ceiling (1024, or 256 for dry runs — see [`runner.ts`](../../packages/services/src/runner.ts)).
 
 ## In CloudWatch Logs
 
-- 7 day retention dev, 30 day retention prod. Set in [`packages/infra/config/`](../../packages/infra/config/).
+- 7-day retention in dev, 30-day in prod, set via `logRetentionDays` in [`packages/infra/config/`](../../packages/infra/config/).
+
+## Sandbox workspaces (S3)
+
+- The workspace bucket is versioned; noncurrent object versions expire after 30 days (dev) / 90 days (prod) via lifecycle rule ([`sandbox-stack.ts`](../../packages/infra/src/stacks/sandbox-stack.ts)). Current versions are kept until explicitly deleted.
 
 ## Deleting an agent
 
-When an Agent record is deleted, its Runs are **not** deleted. They remain queryable by the parent User via the GSI. A future Phase 8 "audit summarizer" agent may roll old runs into summaries.
+When an Agent record is deleted, its Runs are **not** deleted. They remain queryable by the owning user via the GSI (`gsi1pk=USER#<sub>`). Retention policies and an audit summarizer are on the roadmap ([phases](../phases/phase-2-plus.md)).

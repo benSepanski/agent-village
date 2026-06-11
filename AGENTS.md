@@ -8,15 +8,17 @@ Agent Village: personal AWS-hosted scheduler for autonomous AI agents. Users sig
 
 ## Where to go
 
-| You want to                                        | Go to                                                                          |
-| -------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Find the right doc for any question                | [docs/README.md](docs/README.md)                                               |
-| Understand the runtime topology                    | [docs/architecture/topology.md](docs/architecture/topology.md)                 |
-| See what's allowed to import from what             | [docs/architecture/layered-packages.md](docs/architecture/layered-packages.md) |
-| Know what you may / must ask about / must never do | [docs/permissions/](docs/permissions/)                                         |
-| Add a Lambda / route / etc.                        | [docs/playbooks/](docs/playbooks/)                                             |
-| See past architectural decisions                   | [docs/adr/](docs/adr/)                                                         |
-| Pick up the next phase of work                     | [docs/phases/](docs/phases/)                                                   |
+| You want to                                                    | Go to                                                                          |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Find the right doc for any question                            | [docs/README.md](docs/README.md)                                               |
+| Understand the runtime topology                                | [docs/architecture/topology.md](docs/architecture/topology.md)                 |
+| Find the code for a given concern                              | [docs/architecture/codebase-map.md](docs/architecture/codebase-map.md)         |
+| See how key guarantees are enforced (cost, auth, isolation, …) | [docs/key-properties/](docs/key-properties/README.md)                          |
+| See what's allowed to import from what                         | [docs/architecture/layered-packages.md](docs/architecture/layered-packages.md) |
+| Know what you may / must ask about / must never do             | [docs/permissions/](docs/permissions/)                                         |
+| Add a Lambda / route / etc.                                    | [docs/playbooks/](docs/playbooks/)                                             |
+| See past architectural decisions                               | [docs/adr/](docs/adr/)                                                         |
+| Pick up the next phase of work                                 | [docs/phases/](docs/phases/)                                                   |
 
 ## The shape of the project (one screen)
 

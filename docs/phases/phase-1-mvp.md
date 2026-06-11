@@ -1,6 +1,12 @@
-# Phase 1 — MVP
+# Phase 1 — MVP (done)
 
 **Goal:** end-to-end vertical slice. User signs in (email or Google), creates an agent (name + API key + spend limit + cron), the agent runs on schedule (or Run-now from the UI), the run is logged, and the UI shows the run with a per-step timeline.
+
+All 14 steps below are delivered. Known deviations from this spec as shipped:
+
+- **Google federation is not wired** — the Cognito client supports only the `COGNITO` identity provider; email/password is the working sign-in (see [key-properties/user-auth](../key-properties/user-auth.md)).
+- **The prompt scratchpad's standalone "Run" has no backend** — "Save to agent" works; one-off scratchpad runs do not execute.
+- **The `metric` log payloads are not EMF-formatted**, so the custom-namespace alarms are inert (see [observability](../architecture/observability.md#metrics)).
 
 ## Scope
 

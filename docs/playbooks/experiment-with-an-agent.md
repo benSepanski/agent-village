@@ -1,52 +1,49 @@
 # Playbook: experiment with an agent
 
-You should never need to read source code to experiment with an agent.
-This playbook lists every affordance for poking at one.
+Every affordance for poking at an agent without reading source code.
 
 ## In the UI
 
-| Action                | Where                                                                                                                                                                                                                       |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Run now**           | Agent detail page → "Run now" button. Bypasses the schedule and invokes the runner immediately. Same code path as a scheduled run; not a separate "test mode".                                                              |
-| **Dry run**           | Create / edit form → "Dry run" toggle. Caps `max_tokens` at 256 and marks the run record with `dryRun: true`. Use this to sanity-check a config without burning budget.                                                     |
-| **Replay a past run** | Run detail page → "Replay" button. Re-runs with the _exact_ prompt + config snapshot stored on the original run. Great for A/B testing config tweaks.                                                                       |
-| **Prompt scratchpad** | Agent detail page → "Scratchpad" tab. Edit the system prompt + a one-off user prompt, hit "Run", see result. Doesn't mutate the saved agent unless you click "Save to agent".                                               |
-| **Pause / resume**    | Agent detail page → status toggle. Paused agents skip their schedule.                                                                                                                                                       |
-| **Inspect a run**     | Run detail page shows the exact prompt sent, response received, per-step timeline derived from structured log events, token + cost breakdown, and a deep link to CloudWatch Logs Insights filtered to that run's `traceId`. |
+| Action                | Where, and what actually happens                                                                                                                                                                                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Run now**           | Agent detail page → "Run now". Invokes the runner immediately via `POST /agents/:id/run-now` — the same code path as a scheduled run, not a separate test mode.                                                                                                                     |
+| **Dry run**           | Checkbox next to "Run now" (and next to "Replay"). Caps `max_tokens` at 256 and marks the run `dryRun: true`; the Anthropic call still happens, just cheaply. See the constants in [`runner.ts`](../../packages/services/src/runner.ts).                                            |
+| **Replay a past run** | Run detail page → "Replay". Re-runs the agent and records `replayOfRunId`. Guard: the agent's current system prompt must still hash to what the original run captured, otherwise the replay is rejected (`verifyReplay()` in [`runner.ts`](../../packages/services/src/runner.ts)). |
+| **Prompt scratchpad** | Agent detail page, bottom section. Edit the system prompt and a one-off user prompt. **"Save to agent" works** (patches `systemPrompt`); the standalone scratchpad "Run" is not wired to a backend yet — it captures the prompt locally only.                                       |
+| **Pause / resume**    | Agent detail page → Pause/Resume button. Sends `PATCH {status}`; paused agents skip their schedule.                                                                                                                                                                                 |
+| **Spend position**    | The spend bar on the agent detail page shows `spendUsedUsd` against `spendLimitUsd`.                                                                                                                                                                                                |
+| **Inspect a run**     | Run detail page: status, cost, token counts, output/error, a step timeline reconstructed from the run record, and a CloudWatch Logs Insights deep link for the run's `traceId`.                                                                                                     |
 
 ## From the CLI
 
+The CLI talks to the deployed API; set `AV_API_URL` to the API endpoint first.
+
 ```bash
-village agents list                  # paginated table
-village agents show <agentId>        # full config + last 10 runs
-village run <agentId>                # same as the UI "Run now" button
-village logs <runId>                 # streams structured log events in order
-village env doctor                   # local stack health check
+village agents list                    # table of my agents
+village agents show <agentId>          # full config + recent runs
+village run <agentId> [--dry-run]      # same as the UI "Run now"
+village logs <agentId> <runId>         # detail/timeline for one run
+village env doctor                     # local-environment diagnostics
 ```
 
-The CLI uses the same auth (Cognito refresh token) as the UI. Tokens are
-stored in `~/.config/agent-village/credentials`.
+Command definitions: [`cli/src/cli.ts`](../../packages/cli/src/cli.ts). Auth uses the same Cognito flow as the UI; the refresh token is stored in the OS keychain when available, falling back (with a printed security warning) to plaintext at `~/.config/agent-village/credentials`. `AV_ACCESS_TOKEN` short-circuits both — see [`cli/src/auth.ts`](../../packages/cli/src/auth.ts).
 
 ## Locally (no AWS account)
 
 ```bash
-pnpm local:up                        # boot LocalStack + DynamoDB Local
-pnpm doctor:local                    # confirm green
-pnpm seed                            # demo user + agent + sample runs
-pnpm dev                             # SPA at http://127.0.0.1:5173
+pnpm local:up                          # docker compose + LocalStack + DynamoDB Local + bootstrap
+pnpm doctor:local                      # green/red status table
+pnpm dev                               # SPA at http://127.0.0.1:5173
 ```
 
-The local scheduler tick runs every 10 seconds and triggers any agent
-whose cron is due — see `tools/scripts/local-scheduler.ts`. All logs
-stream to the terminal pretty-printed (same JSON shape as prod, just
-colorized).
+The bootstrap script ([`local-bootstrap.ts`](../../tools/scripts/local-bootstrap.ts)) creates the table and a demo secret. There is no local scheduler — schedules are an EventBridge Scheduler feature and only fire in deployed environments; trigger runs locally via the CLI or UI. Logs print pretty-printed locally and as JSON when deployed (same envelope, see [structured-logging](../conventions/structured-logging.md)).
 
 ## Common knobs
 
-| Setting         | Effect                                        | Where                           |
-| --------------- | --------------------------------------------- | ------------------------------- |
-| `spendLimitUsd` | Hard cap on monthly Anthropic spend per agent | Edit on the agent form          |
-| `schedule`      | Cron expression in `EventBridge` format       | Edit on the agent form          |
-| `model`         | Anthropic model identifier                    | Edit on the agent form          |
-| `status`        | `active` runs on schedule, `paused` skips     | Toggle on the agent detail page |
-| `LOG_LEVEL`     | Local-dev log verbosity (default `info`)      | `.env.local`                    |
+| Setting         | Effect                                                                                          | Where                                                                                          |
+| --------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `spendLimitUsd` | Hard cap on the agent's cumulative Anthropic spend                                              | Agent form ([spend-reservation](../data-model/spend-reservation.md))                           |
+| `schedule`      | 5-field cron (or EventBridge `cron(...)`/`rate(...)`); `null` = manual-only                     | Agent form; dialect conversion in [`scheduling.ts`](../../packages/services/src/scheduling.ts) |
+| `model`         | Anthropic model id, one of the enum in [`agent.ts`](../../packages/shared/src/schemas/agent.ts) | Agent form                                                                                     |
+| `status`        | `active` runs on schedule, `paused` skips                                                       | Pause/Resume on the agent detail page                                                          |
+| `LOG_LEVEL`     | Logger verbosity (default `info`)                                                               | Env var, read by [`logger.ts`](../../packages/shared/src/observability/logger.ts)              |

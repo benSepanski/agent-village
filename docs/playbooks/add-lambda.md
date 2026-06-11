@@ -1,61 +1,57 @@
 # Playbook: add a Lambda
 
-Use this when you need a new HTTP endpoint or scheduled task.
+Use this to add a new HTTP endpoint (`packages/api/`) or a scheduled / event-driven worker (`packages/runner/`).
 
-## 1. Decide which package
+## HTTP endpoint
 
-- HTTP endpoint → `packages/api/`
-- Scheduled / event-driven worker → `packages/runner/`
+### 1. Write the handler
 
-## 2. Add the handler file
-
-Path convention: `packages/<api|runner>/src/handlers/<name>.ts`.
+One file per route at `packages/api/src/handlers/<name>.ts`. The file name must match the `name` you register in step 2. Handlers are thin: wrap with `withContext()`, parse input through a shared Zod schema, call one service function, return `jsonResponse()`. Copy the shape of an existing handler, e.g. [`agents-create.ts`](../../packages/api/src/handlers/agents-create.ts):
 
 ```ts
-import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
-import { Logger } from '@aws-lambda-powertools/logger';
-import { Tracer } from '@aws-lambda-powertools/tracer';
-import { SomeInputSchema } from '@agent-village/shared/schemas';
-import { someUseCase } from '@agent-village/services';
+import { CreateAgentInput, UserId } from '@agent-village/shared';
+import { agent } from '@agent-village/services';
+import { jsonResponse, withContext } from '../middleware.js';
 
-const logger = new Logger({ serviceName: 'api' });
-const tracer = new Tracer({ serviceName: 'api' });
-
-export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
-  const input = SomeInputSchema.parse(JSON.parse(event.body ?? '{}'));
-  logger.info({ event: 'http.request.received', path: event.rawPath });
-  const result = await someUseCase(input);
-  return { statusCode: 200, body: JSON.stringify(result) };
-};
-
-export const main = tracer.captureLambdaHandler(handler);
+export const handler = withContext(async (event, ctx) => {
+  const ownerSub = UserId.parse(ctx.cognitoSub);
+  const input = CreateAgentInput.parse(JSON.parse(event.body ?? '{}'));
+  const created = await agent.createAgent(ownerSub, input);
+  return jsonResponse(201, created);
+});
 ```
 
-Required by lint:
+[`withContext()`](../../packages/api/src/middleware.ts) supplies everything cross-cutting — JWT claim extraction into `ctx` (`cognitoSub`, `email`, `traceId`), `http.request.*` structured logging, and error translation (ZodError → 400, domain errors → their `statusCode`, anything else → 500). Don't log or catch in the handler itself.
 
-- An import from `@agent-village/shared` (the schema).
-- A `.parse(...)` call before using input.
-- A structured-log call with `event: 'http.request.received'` (or similar).
+Lint enforces a `.parse(...)` call through a `@agent-village/shared` schema in every handler file ([schemas-at-boundaries](../conventions/schemas-at-boundaries.md)). New input/output shapes go in [`packages/shared/src/schemas/`](../../packages/shared/src/schemas/) and are re-exported from its `index.ts`.
 
-## 3. Wire it into CDK
+### 2. Register it in the `HANDLERS` array
 
-Add a `NodejsFunction` to `packages/infra/src/stacks/api-stack.ts` (or
-`runner-stack.ts`). Bundle the handler with `esbuild` via CDK's built-in
-support. Set memory + timeout from the env config.
+Routes, permissions, and Lambda creation are all driven by the [`HANDLERS` registry in `api-stack.ts`](../../packages/infra/src/stacks/api-stack.ts) — there is no per-handler CDK code to write. Add one entry:
 
-## 4. Add a unit test
+```ts
+{ name: 'agents-archive', method: HttpMethod.POST, routePath: '/agents/{id}/archive', perms: 'write' },
+```
 
-Mock AWS SDK calls with `aws-sdk-client-mock` (helpers in
-`packages/data/test-utils/`). Test the happy path + each error branch.
+- `name` must equal the handler file name (the stack bundles `handlers/${name}.ts`).
+- `perms: 'read'` grants DynamoDB read; `'write'` grants read/write **plus** CRUD on the env's agent secrets.
+- `needsScheduler: true` adds EventBridge Scheduler permissions (needed by anything that changes an agent's schedule).
 
-## 5. Run locally before deploying
+Every registered route automatically gets the Cognito JWT authorizer, a log group with env-appropriate retention, and memory from `apiMemoryMb` in [`config/`](../../packages/infra/config/).
+
+### 3. Test it
+
+API handler tests mock the **services layer** (not the AWS SDK) and invoke the handler with a synthetic API Gateway event that includes JWT claims — copy the pattern in [`handlers.test.ts`](../../packages/api/src/handlers/handlers.test.ts). `aws-sdk-client-mock` is for `packages/data` tests.
+
+## Scheduled / event-driven worker
+
+The runner package has a single Lambda ([`runner/src/handler.ts`](../../packages/runner/src/handler.ts)) that parses its event with a Zod schema and delegates to `@agent-village/services`. A new event-driven workload usually means a new branch of the runner's input schema or a new function in [`runner-stack.ts`](../../packages/infra/src/stacks/runner-stack.ts) following the same `NodejsFunction` shape (log group, ARM64, env vars, scoped IAM grants). Adding a whole new Lambda to the stack is an [Ask-first](../permissions/ask-first.md) change if it adds new AWS surface.
+
+## Verify, then ship
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm test
-pnpm dev                # invokes the handler via AWS RIE locally
+pnpm lint && pnpm typecheck && pnpm test
+pnpm --filter @agent-village/infra synth:dev   # confirms CDK still synthesizes
 ```
 
-## 6. Deploy
-
-Push to a PR → CI runs. Merge to `main` → `dev` deploys automatically.
-Tag `v*` → `prod` deploys after manual approval.
+Merge to `main` → auto-deploy to dev. Tag `v*` → prod after manual approval. Details: [deploy-env](deploy-env.md).

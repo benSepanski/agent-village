@@ -2,6 +2,8 @@
 
 Two layers of cost protection: AWS account-level (catches everything),
 and per-agent application-level (catches Anthropic spend specifically).
+Mechanism-by-mechanism code links:
+[key-properties/aws-cost-control](../key-properties/aws-cost-control.md).
 
 ## Account-level (defined in CDK)
 
@@ -10,13 +12,13 @@ These all live in
 and the per-env config in
 [`packages/infra/config/`](../../packages/infra/config/).
 
-| Guard                           | What it does                                                                                                                                                                           | Defaults                               |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| **AWS Budgets**                 | AWS-managed spend tracker. Emails the address in `alarmEmail` when your month-to-date spend crosses a threshold. Doesn't _stop_ spending — it only alerts.                             | $5 dev, $20 prod, alerts at 50/80/100% |
-| **CloudWatch Logs retention**   | Automatically deletes log events older than N days. The default is "keep forever" which silently grows your bill — we override it.                                                     | 7d dev, 30d prod                       |
-| **DynamoDB pay-per-request**    | DynamoDB has two billing modes; we use the one where you pay per request instead of reserving capacity 24/7. No idle cost.                                                             | Always on                              |
-| **No NAT Gateway, no VPC**      | A VPC + NAT Gateway is the usual "private network" setup in AWS, but a NAT Gateway alone costs ~$32/mo. We use only serverless services that work over the public internet + IAM auth. | Always on                              |
-| **Lambda memory tuned per env** | Lambda is billed per GB-second. Lower memory = cheaper but slower cold starts. Prod gets more memory for the runner so user-visible latency stays low.                                 | 256 MB dev, up to 512 MB prod          |
+| Guard                           | What it does                                                                                                                                                                                                                         | Defaults                               |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------- |
+| **AWS Budgets**                 | AWS-managed spend tracker. Emails the address in `alarmEmail` when your month-to-date spend crosses a threshold. Doesn't _stop_ spending — it only alerts.                                                                           | $5 dev, $20 prod, alerts at 50/80/100% |
+| **CloudWatch Logs retention**   | Deletes log events older than N days. AWS's default is "keep forever", which grows the bill silently; every log group here sets explicit retention.                                                                                  | 7d dev, 30d prod                       |
+| **DynamoDB pay-per-request**    | Billing per request instead of reserved capacity 24/7. No idle cost.                                                                                                                                                                 | Always on                              |
+| **No NAT Gateway**              | A NAT Gateway costs ~$32/mo idle. The serverless services run outside any VPC; the sandbox Fargate cluster's VPC uses public subnets with `natGateways: 0` ([`sandbox-stack.ts`](../../packages/infra/src/stacks/sandbox-stack.ts)). | Always on                              |
+| **Lambda memory tuned per env** | Lambda is billed per GB-second. Lower memory = cheaper but slower cold starts. Prod gets more memory for the runner so user-visible latency stays low.                                                                               | 256 MB dev, up to 512 MB prod          |
 
 ### How to check your current spend
 
@@ -34,7 +36,7 @@ consumed of each free-tier allowance for the month.
 ## Per-agent (defined in application code)
 
 The cost AWS Budgets _won't_ catch is Anthropic API spend — Anthropic
-bills you directly, not through AWS. We cap it in code:
+bills directly, not through AWS. It is capped in code:
 
 - Each Agent record has `spendLimitUsd` (the cap you set) and
   `spendUsedUsd` (a running accumulator).
@@ -47,8 +49,9 @@ bills you directly, not through AWS. We cap it in code:
   the accumulator to the actual cost.
 
 See [spend-reservation](../data-model/spend-reservation.md) for the
-exact pattern. The `runs.spend_limit_exceeded` CloudWatch alarm also
-emails you when this triggers.
+exact pattern. A `runs.spend_limit_exceeded` CloudWatch alarm is
+defined for this event, but is currently inert — see the metrics gap
+in [observability](observability.md#metrics).
 
 ## What costs you might still see — and how to cut them
 

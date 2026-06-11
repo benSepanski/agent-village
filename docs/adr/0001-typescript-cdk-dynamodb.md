@@ -43,7 +43,7 @@ Database candidates considered:
 ## Consequences
 
 - All access patterns must be designed into the DynamoDB key schema up
-  front. See [docs/data-model.md](../data-model.md).
+  front. See [docs/data-model/](../data-model/README.md).
 - Any future need for ad-hoc SQL-style analytical queries will require
   exporting to S3/Athena.
 - The `cli` and `services` packages share code with `runner` and `api`,

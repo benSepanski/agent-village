@@ -6,7 +6,22 @@ Each link below answers one question in one screen. Pattern-match against the qu
 
 1. [Architecture topology](architecture/topology.md) — what AWS components exist and how requests flow through them.
 2. [Layered packages](architecture/layered-packages.md) — what each `packages/*` directory is for, and what's allowed to import from what.
-3. [The three-tier permission rule](permissions/README.md) — what an agent (you) may do without asking, must ask first, and must never do.
+3. [Codebase map](architecture/codebase-map.md) — where the code for any given concern lives.
+4. [The three-tier permission rule](permissions/README.md) — what an agent (you) may do without asking, must ask first, and must never do.
+
+## I'm reviewing this system before launch / operating it
+
+[key-properties/](key-properties/README.md) explains, with code links, **how** each load-bearing guarantee is enforced — and where it stops:
+
+| Property                             | File                                                                 |
+| ------------------------------------ | -------------------------------------------------------------------- |
+| Cost control (AWS + Anthropic)       | [aws-cost-control](key-properties/aws-cost-control.md)               |
+| Which AWS account/region is targeted | [aws-account-and-region](key-properties/aws-account-and-region.md)   |
+| How multiple deployments coexist     | [multiple-deployments](key-properties/multiple-deployments.md)       |
+| User authentication                  | [user-auth](key-properties/user-auth.md)                             |
+| Where agent state persists           | [agent-state-persistence](key-properties/agent-state-persistence.md) |
+| How state is isolated per user/agent | [agent-state-isolation](key-properties/agent-state-isolation.md)     |
+| Concurrent access to the same state  | [concurrent-state-access](key-properties/concurrent-state-access.md) |
 
 ## I'm about to write code
 
@@ -70,6 +85,6 @@ Each link below answers one question in one screen. Pattern-match against the qu
 ## I'm picking up the project mid-flight
 
 - [What Phase 0 delivered](phases/phase-0-harness.md) — the harness already in place.
-- [Phase 1 — MVP](phases/phase-1-mvp.md) — actionable spec for the next agent to execute.
-- [Phase 2 — sandboxed application runs](phases/phase-2-sandbox-runs.md) — in progress; steps 01–03 landed.
+- [Phase 1 — MVP](phases/phase-1-mvp.md) — delivered; the spec plus known deviations as shipped.
+- [Phase 2 — sandboxed application runs](phases/phase-2-sandbox-runs.md) — active; the step table shows what's landed.
 - [Phase 3+ roadmap](phases/phase-2-plus.md) — sketched, not detailed.
