@@ -137,16 +137,27 @@ finishes, CDK prints **stack outputs** — copy these somewhere:
   uses these).
 - `AlarmTopicArn` — the SNS topic alarms publish to.
 
-### After this first deploy, two things to do
+### After this first deploy, three things to do
 
-1. **Confirm the alarm email.** AWS sends a "Subscription
-   Confirmation" email to `alarmEmail`
-   ([`packages/infra/config/dev.ts`](../../packages/infra/config/dev.ts)).
-   **Click the "Confirm subscription" link** — until you do, no alerts
-   will arrive. Same applies the first time you deploy prod.
-2. **Visit the `WebUrl`.** You'll see a "SPA bundle has not been built
-   yet" placeholder until the web bundle is built and re-deployed —
-   that ships in Phase 1.2.
+1. **Set `alarmEmail` to your address** in
+   [`packages/infra/config/dev.ts`](../../packages/infra/config/dev.ts)
+   (and `prod.ts`) before — or re-deploy after — the first deploy. The
+   config ships with the repo owner's email.
+2. **Confirm the alarm email.** AWS sends a "Subscription
+   Confirmation" email to `alarmEmail`. **Click the "Confirm
+   subscription" link** — until you do, no alerts will arrive. Same
+   applies the first time you deploy prod.
+3. **Wire the SPA to your Cognito pool.** The web bundle reads its
+   Cognito and API configuration at **build time** from Vite env vars
+   (see [`amplify-config.ts`](../../packages/web/src/auth/amplify-config.ts)).
+   Using the stack outputs from the first deploy, set
+   `VITE_COGNITO_USER_POOL_ID`, `VITE_COGNITO_CLIENT_ID`,
+   `VITE_COGNITO_DOMAIN`, and `VITE_API_BASE_URL` (e.g. in
+   `packages/web/.env.local`), rebuild (`pnpm build`), and deploy again.
+   The `WebStack` ships whatever is in `packages/web/dist` at synth
+   time — and a placeholder page if no bundle exists
+   ([`web-stack.ts`](../../packages/infra/src/stacks/web-stack.ts)).
+   Without the env vars, the SPA loads but sign-in is disabled.
 
 ### Tearing it back down
 
@@ -154,7 +165,8 @@ finishes, CDK prints **stack outputs** — copy these somewhere:
 pnpm --filter @agent-village/infra exec cdk destroy --all --context env=dev
 ```
 
-Dev has `retainOnDelete: false`, so this fully removes everything.
+This prompts for confirmation per stack. Dev has
+`retainOnDelete: false`, so it fully removes everything.
 Prod's `retainOnDelete: true` keeps the DynamoDB table alive even if
 the stack is destroyed.
 
@@ -223,9 +235,12 @@ In the AWS Console, do this twice — once for `dev`, once for `prod`:
    - `AV_DEPLOY_DEV_ENABLED` = `true`
      (gates the dev job — leave this unset until the dev role above
      exists, otherwise CI will fail noisily).
-4. After the first CI deploy succeeds:
+4. After the first CI deploy succeeds, add two more **Secrets**:
    - `AV_DEV_URL` = the CloudFront URL from the deploy outputs.
    - `AV_PROD_URL` = same, for prod (set after first prod deploy).
+
+   The deploy workflow feeds these to Playwright as `AV_E2E_BASE_URL`
+   for the post-deploy smoke test ([`deploy.yml`](../../.github/workflows/deploy.yml)).
 
 ---
 
@@ -251,9 +266,10 @@ SHA. The OIDC deploy role must be allowed to push to ECR —
 ## Verifying a deploy worked
 
 1. **Workflow run** — green check on the commit/tag in GitHub Actions.
-2. **Smoke E2E** — the workflow runs Playwright against
-   `AV_DEV_URL` / `AV_PROD_URL` after CDK finishes. Failure here means
-   the infra is up but the SPA didn't load right.
+2. **Smoke E2E** — the workflow runs Playwright against the deployed
+   URL (`AV_E2E_BASE_URL`, fed from the `AV_DEV_URL` / `AV_PROD_URL`
+   secrets) after CDK finishes. Failure here means the infra is up but
+   the SPA didn't load right.
 3. **CloudFront URL** — open it. You should see the SPA, not the
    placeholder.
 4. **CloudFormation Console** — every stack should be `UPDATE_COMPLETE`
@@ -269,7 +285,7 @@ SHA. The OIDC deploy role must be allowed to push to ECR —
 | Cost trend graphs         | AWS Console → **Billing → Cost Explorer**                                                     |
 | Budget status             | AWS Console → **Billing → Budgets**. `MonitoringStack` creates `agent-village-<env>-monthly`. |
 | Alarm state               | AWS Console → **CloudWatch → Alarms**                                                         |
-| Per-agent Anthropic spend | The agent detail page in the SPA (Phase 1)                                                    |
+| Per-agent Anthropic spend | The spend bar on the agent detail page in the SPA                                             |
 
 You'll also receive emails (at `alarmEmail`) when:
 
@@ -297,7 +313,7 @@ options:
 
 ## Emergency: pause all agents
 
-Until the CLI command lands (Phase 2), use the AWS Console:
+In the AWS Console:
 
 **EventBridge → Schedules → Schedule groups → `agent-village-<env>-agents`**
 → select each schedule → **Disable**.

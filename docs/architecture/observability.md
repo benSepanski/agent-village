@@ -10,23 +10,23 @@ You should be able to answer "what is this agent doing and why?" without opening
 
 ## Tracing
 
-- AWS Lambda Powertools' `Tracer` (X-Ray) enabled on every Lambda. Free tier: 100k traces/mo.
-- A single `traceId` flows from API Gateway → Lambda → DynamoDB → Anthropic.
-- The `traceId` is persisted on the Run record so the UI can deep-link to it.
+- Every API request and run carries a `traceId`: the API middleware reads the `x-amzn-trace-id` header ([`middleware.ts`](../../packages/api/src/middleware.ts)); the runner reads Lambda's `_X_AMZN_TRACE_ID` env var ([`runner.ts`](../../packages/services/src/runner.ts)).
+- The `traceId` appears on every structured log line for that request/run and is persisted on the Run record, so CloudWatch Logs Insights can reconstruct any run end-to-end with one filter.
+- X-Ray active tracing is not enabled; the trace id is used for log correlation only.
 
 ## Metrics
 
-- CloudWatch EMF emitted via the logger's `metric: {...}` payload key — no extra SDK call needed.
-- Standard metrics: `runs.started`, `runs.ok`, `runs.error`, `runs.spend_limit_exceeded`, `anthropic.latency_ms`, `anthropic.cost_usd`.
+- Log calls may carry a `metric: { name: value }` payload key (e.g. `spend.reserved_usd`, `run.cost_usd`, `run.duration_ms` in [`runner.ts`](../../packages/services/src/runner.ts)). The values are queryable via Logs Insights.
+- **Known gap:** the logger does not emit the CloudWatch EMF envelope, so these do not currently materialize as CloudWatch metrics. The two alarms below that watch the `AgentVillage` namespace (`runs.error`, `runs.spend_limit_exceeded`) will not fire until EMF emission is wired in.
 
 ## Alarms
 
 Defined in [`MonitoringStack`](../../packages/infra/src/stacks/monitoring-stack.ts):
 
-- Runner Lambda `error` metric > 0 over 5 min.
-- `spend_limit_exceeded` ≥ 1 in 1h.
-- Runner duration p95 > 30s.
-- AWS Budgets at 50/80/100% of monthly cap.
+- Runner Lambda errors > 0 over 5 min (native Lambda metric — active).
+- Runner duration p95 > 30 s over two 5-min periods (native — active).
+- `runs.error` > 0 over 5 min and `runs.spend_limit_exceeded` > 0 over 1 h (custom `AgentVillage` namespace — inert until EMF emission lands, see above).
+- AWS Budget emails at 50/80/100% of the monthly cap.
 
 All alarms publish to an SNS topic subscribed by the env's `alarmEmail`.
 
@@ -34,10 +34,6 @@ All alarms publish to an SNS topic subscribed by the env's `alarmEmail`.
 
 The web UI is the primary observability dashboard for daily use:
 
-- **Agent detail page** — last 50 runs with status / duration / cost.
-- **Run detail page** — per-step timeline derived from the structured log events for the run's `traceId`. Token + cost breakdown. Deep-link to CloudWatch Logs Insights.
-- **System health page** (`/health`) — account spend vs Budget, error counts, last successful deploy, active-agent count.
-
-## When you need more
-
-`docs/playbooks/` includes "trace a failing run" — TODO Phase 1.
+- **Agent detail page** — last 50 runs ([`runs.ts` default limit](../../packages/data/src/dynamo/runs.ts)) with status / duration / cost, plus the spend bar.
+- **Run detail page** — token + cost breakdown, output/error, a step timeline reconstructed from the run record ([`RunTimeline.tsx`](../../packages/web/src/components/RunTimeline.tsx)), and a CloudWatch Logs Insights deep link for the run's `traceId`.
+- **System health page** (`/health`) — active/paused agent counts and aggregate spend used vs. limits across agents ([`SystemHealth.tsx`](../../packages/web/src/components/SystemHealth.tsx)).

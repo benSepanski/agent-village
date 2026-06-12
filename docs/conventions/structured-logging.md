@@ -32,15 +32,15 @@ That's it — no separate registration step.
 
 ## Emitting metrics
 
-The same `logger.info(...)` call can emit a CloudWatch metric via the `metric` key:
+The same `logger.info(...)` call carries numeric measurements via the `metric` key:
 
 ```ts
 logger.info({
   event: 'agent.run.completed',
   agentId,
   runId,
-  metric: { 'anthropic.latency_ms': latencyMs, 'anthropic.cost_usd': costUsd },
+  metric: { 'run.cost_usd': costUsd, 'run.duration_ms': durationMs },
 });
 ```
 
-CloudWatch EMF picks this up automatically — no extra SDK call.
+The values are queryable in CloudWatch Logs Insights. The logger does not yet wrap them in the CloudWatch EMF envelope, so they do not become CloudWatch metrics — see the known gap in [observability](../architecture/observability.md#metrics).

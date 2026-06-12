@@ -31,7 +31,8 @@ The cost is one extra `UpdateItem` per run. DynamoDB pay-per-request makes that 
 
 ## Failure modes
 
-- **Reserve succeeds, Anthropic call throws before completing**: the estimate is held against the budget even though no Anthropic spend occurred. Acceptable — the next call will likely retry from the same agent and the estimate is small. A Phase 2+ reconciliation cron can sweep these.
-- **Reserve succeeds, finalize fails** (DDB throttling, etc): the run record still writes with the actual cost in its `costUsd` attribute; the agent accumulator drifts up by `estimate - actual`. Same Phase 2+ cron sweeps these.
+- **Anthropic returns an error**: the error is caught inside the call, the run is recorded with `status=error` and zero tokens, and finalization subtracts the full estimate — the accumulator is unchanged net. See `callAnthropic()` in [`runner.ts`](../../packages/services/src/runner.ts).
+- **Anything else throws before finalization** (secret fetch fails, etc.): `refundReservation()` releases the estimate with a negative delta. Only if that refund write itself fails does the accumulator drift upward — logged as `agent.run.spend_refund_failed`.
+- **Finalize succeeds but the run-record write fails**: the spend is counted but no run row exists; the structured logs for the `traceId` are the audit trail.
 
-These edge cases are documented here so a future engineer sees them; they're acceptable at MVP scale.
+Residual drift is possible only when a _second_ write fails after the first succeeded; there is no reconciliation job, so correcting drift means manually adjusting `spendUsedUsd`. Acceptable at current scale.

@@ -1,0 +1,29 @@
+# Key property: user authentication
+
+**The property:** no API request executes without a valid Cognito-issued JWT, and every handler derives the acting user from that token's `sub` claim — never from request parameters.
+
+## Enforcement
+
+| Mechanism                                                                                                                                                                                          | Code                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A Cognito User Pool with email sign-in, mandatory email verification, and a 12-char/4-class password policy. MFA (TOTP) is optional                                                                | [`auth-stack.ts`](../../packages/infra/src/stacks/auth-stack.ts)                                                                                                                                                |
+| The SPA client uses SRP auth, 60-minute access/ID tokens, 30-day refresh tokens, and `preventUserExistenceErrors` (no account enumeration)                                                         | `addClient('SpaClient', …)` in [`auth-stack.ts`](../../packages/infra/src/stacks/auth-stack.ts)                                                                                                                 |
+| **Every API route is behind an `HttpJwtAuthorizer`** wired to the pool's issuer and the SPA client's audience. API Gateway rejects missing/invalid/expired tokens before any Lambda runs           | authorizer construction and `addRoutes()` loop in [`api-stack.ts`](../../packages/infra/src/stacks/api-stack.ts)                                                                                                |
+| Handlers receive identity only via `withContext()`, which reads `sub`/`email` from the **gateway-verified** JWT claims and passes them as `RequestContext`. Handlers never parse tokens themselves | [`extractContext()` / `withContext()` in `middleware.ts`](../../packages/api/src/middleware.ts)                                                                                                                 |
+| Every handler scopes its work to `ctx.cognitoSub` (parsed through the `UserId` schema) — e.g. agent lookups query `pk=USER#<sub>`                                                                  | any handler, e.g. [`agents-get.ts`](../../packages/api/src/handlers/agents-get.ts); see [agent-state-isolation](agent-state-isolation.md)                                                                       |
+| The SPA signs in through Amplify against the pool and sends the ID token as `Authorization: Bearer …` on every call                                                                                | [`AuthProvider.tsx`](../../packages/web/src/auth/AuthProvider.tsx), [`amplify-config.ts`](../../packages/web/src/auth/amplify-config.ts), [`api-client/client.ts`](../../packages/web/src/api-client/client.ts) |
+| The CLI authenticates the same way (Cognito refresh token), stored in the OS keychain where available, with an explicit security warning on plaintext fallback                                     | [`cli/src/auth.ts`](../../packages/cli/src/auth.ts)                                                                                                                                                             |
+| A user profile row is created on first authenticated request from the verified claims                                                                                                              | [`ensureProfile()` in `services/user.ts`](../../packages/services/src/user.ts)                                                                                                                                  |
+
+## User-facing identity flow
+
+1. Browser → Cognito (SRP or hosted UI) → tokens held by Amplify.
+2. Browser → API Gateway with `Authorization: Bearer <idToken>`.
+3. Gateway validates signature, issuer, audience, expiry → invokes the Lambda with verified claims in `requestContext.authorizer.jwt.claims`.
+4. `withContext()` turns claims into `RequestContext`; the handler scopes everything to `cognitoSub`.
+
+## Known limits
+
+- **Google federation is not wired.** The SPA's Amplify config lists Google as an OAuth provider, but the User Pool client supports only `COGNITO` as an identity provider (see the `supportedIdentityProviders` line in [`auth-stack.ts`](../../packages/infra/src/stacks/auth-stack.ts)). Email/password is the only working sign-in today.
+- Trust is entirely in the JWT signature — there is no server-side session store, device binding, or token revocation short of Cognito's own mechanisms.
+- The scheduled-run path is unauthenticated by design: EventBridge Scheduler invokes the runner directly with `{agentId}` and the runner loads the agent without owner scoping (the trusted path in [`runner.ts`](../../packages/services/src/runner.ts)). IAM restricts who can invoke that Lambda: the scheduler's invoke role ([`runner-stack.ts`](../../packages/infra/src/stacks/runner-stack.ts)) and the `agents-run-now` handler ([`grantRunNowExtras()` in `api-stack.ts`](../../packages/infra/src/stacks/api-stack.ts)), which passes the caller's verified `ownerSub` so user-initiated runs stay owner-scoped.

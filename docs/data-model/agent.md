@@ -10,16 +10,16 @@ One row per agent. Owned by exactly one User.
 
 ## Attributes
 
-| Attribute            | Notes                                                                |
-| -------------------- | -------------------------------------------------------------------- |
-| `name`               | Display name, max 80 chars                                           |
-| `model`              | Anthropic model id (e.g. `claude-opus-4-7`)                          |
-| `systemPrompt`       | The agent's persistent system prompt                                 |
-| `schedule`           | EventBridge cron expression or `null` for manual-only                |
-| `spendLimitUsd`      | Hard ceiling per `spendUsedUsd` accumulator                          |
-| `spendUsedUsd`       | Running total, reset by a separate cron in Phase 2+                  |
-| `anthropicSecretArn` | Secrets Manager ARN holding the API key (plaintext key never in DDB) |
-| `status`             | `active` runs on schedule, `paused` skips                            |
+| Attribute            | Notes                                                                     |
+| -------------------- | ------------------------------------------------------------------------- |
+| `name`               | Display name, max 80 chars                                                |
+| `model`              | Anthropic model id (e.g. `claude-opus-4-7`)                               |
+| `systemPrompt`       | The agent's persistent system prompt                                      |
+| `schedule`           | 5-field cron (converted to EventBridge dialect) or `null` for manual-only |
+| `spendLimitUsd`      | Hard ceiling per `spendUsedUsd` accumulator                               |
+| `spendUsedUsd`       | Running total; never reset automatically                                  |
+| `anthropicSecretArn` | Secrets Manager ARN holding the API key (plaintext key never in DDB)      |
+| `status`             | `active` runs on schedule, `paused` skips                                 |
 
 ## Access patterns
 
