@@ -135,6 +135,8 @@ finishes, CDK prints **stack outputs** — copy these somewhere:
 - `ApiEndpoint` — the API Gateway URL.
 - `UserPoolId` / `UserPoolClientId` — Cognito identifiers (the SPA
   uses these).
+- `UserPoolDomain` — the Cognito hosted-UI domain (the SPA's
+  `VITE_COGNITO_DOMAIN`).
 - `AlarmTopicArn` — the SNS topic alarms publish to.
 
 ### After this first deploy, three things to do

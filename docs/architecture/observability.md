@@ -17,7 +17,7 @@ You should be able to answer "what is this agent doing and why?" without opening
 ## Metrics
 
 - Log calls may carry a `metric: { name: value }` payload key (e.g. `spend.reserved_usd`, `run.cost_usd`, `run.duration_ms` in [`runner.ts`](../../packages/services/src/runner.ts)). The values are queryable via Logs Insights.
-- **Known gap:** the logger does not emit the CloudWatch EMF envelope, so these do not currently materialize as CloudWatch metrics. The two alarms below that watch the `AgentVillage` namespace (`runs.error`, `runs.spend_limit_exceeded`) will not fire until EMF emission is wired in.
+- In deployed (non-pretty) mode, the logger also wraps each `metric` payload in the CloudWatch EMF envelope (`emfEnvelope()` in [`logger.ts`](../../packages/shared/src/observability/logger.ts)), so the values materialize as dimensionless metrics in the custom `AgentVillage` namespace — including `runs.error` and `runs.spend_limit_exceeded`, which the alarms below watch. Units are inferred from the name suffix (`_ms` → Milliseconds, `_usd` → None, otherwise Count).
 
 ## Alarms
 
@@ -25,7 +25,7 @@ Defined in [`MonitoringStack`](../../packages/infra/src/stacks/monitoring-stack.
 
 - Runner Lambda errors > 0 over 5 min (native Lambda metric — active).
 - Runner duration p95 > 30 s over two 5-min periods (native — active).
-- `runs.error` > 0 over 5 min and `runs.spend_limit_exceeded` > 0 over 1 h (custom `AgentVillage` namespace — inert until EMF emission lands, see above).
+- `runs.error` > 0 over 5 min and `runs.spend_limit_exceeded` > 0 over 1 h (custom `AgentVillage` namespace, emitted via EMF — see above).
 - AWS Budget emails at 50/80/100% of the monthly cap.
 
 All alarms publish to an SNS topic subscribed by the env's `alarmEmail`.

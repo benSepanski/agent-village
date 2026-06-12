@@ -26,6 +26,7 @@ vi.mock('@agent-village/data', () => ({
 }));
 
 import { executeRun, setAnthropicFactory } from './runner.js';
+import { logger } from './logger.js';
 
 const AGENT_ID = '01HZ1234567890ABCDEFGHJKMN';
 const ORIG_RUN_ID = '01HZN0PQRSTVWXYZ0123456789';
@@ -131,6 +132,29 @@ describe('executeRun (spend rejection)', () => {
     expect(agentRepoMock.finalizeSpend).not.toHaveBeenCalled();
     expect(runRepoMock.append.mock.calls[0]![0].status).toBe('spend_limit_exceeded');
   });
+
+  it('emits the runs.spend_limit_exceeded alarm metric on rejection', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn');
+    agentRepoMock.getAgentById.mockResolvedValue(agentFixture);
+    agentRepoMock.reserveSpend.mockRejectedValue(
+      new SpendLimitExceededError({
+        agentId: AGENT_ID,
+        spendLimitUsd: 1,
+        spendUsedUsd: 0.99,
+        estimateUsd: 0.05,
+      }),
+    );
+    runRepoMock.append.mockResolvedValue(undefined);
+
+    await executeRun({ agentId: AGENT_ID });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'agent.run.spend_rejected',
+        metric: { 'runs.spend_limit_exceeded': 1 },
+      }),
+    );
+  });
 });
 
 describe('executeRun (anthropic error)', () => {
@@ -148,6 +172,25 @@ describe('executeRun (anthropic error)', () => {
     expect(agentRepoMock.finalizeSpend).toHaveBeenCalled();
     expect(runRepoMock.append.mock.calls[0]![0].error).toContain('API down');
     expect(runRepoMock.append.mock.calls[0]![0].output).toBeNull();
+  });
+
+  it('emits the runs.error alarm metric when the Anthropic call fails', async () => {
+    const errorSpy = vi.spyOn(logger, 'error');
+    agentRepoMock.getAgentById.mockResolvedValue(agentFixture);
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    secretsMock.getAnthropicKey.mockResolvedValue('sk-ant-key');
+    anthropicClient.messages.create.mockRejectedValue(new Error('API down'));
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+    runRepoMock.append.mockResolvedValue(undefined);
+
+    await executeRun({ agentId: AGENT_ID });
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'agent.run.failed',
+        metric: { 'runs.error': 1 },
+      }),
+    );
   });
 });
 

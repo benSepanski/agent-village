@@ -25,4 +25,15 @@ export interface EnvConfig {
   readonly alarmEmail: string;
   /** Optional custom domain for the SPA. */
   readonly webDomain?: string;
+  /**
+   * Google OAuth client id for federated sign-in. When set, the SPA client
+   * supports "Sign in with Google"; the client secret is read at deploy time
+   * from the Secrets Manager secret `agent-village/<env>/auth/google-client-secret`.
+   */
+  readonly googleClientId?: string;
+  /**
+   * OAuth callback/sign-out URLs for the hosted UI — the SPA origins
+   * (e.g. the CloudFront URL from the first deploy, localhost for dev).
+   */
+  readonly oauthCallbackUrls?: readonly string[];
 }

@@ -17,6 +17,8 @@ export const LOG_EVENTS = [
   'agent.run.anthropic_call',
   'agent.run.anthropic_response',
   'agent.run.spend_finalized',
+  'agent.run.spend_refunded',
+  'agent.run.spend_refund_failed',
   'agent.run.persisted',
   'agent.run.completed',
   'agent.run.failed',

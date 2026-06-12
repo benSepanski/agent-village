@@ -151,6 +151,7 @@ async function reserve(ctx: RunContext, agent: Agent, estimateUsd: number): Prom
         agentId: agent.id,
         runId: ctx.runId,
         traceId: ctx.traceId,
+        metric: { 'runs.spend_limit_exceeded': 1 },
       });
       return false;
     }
@@ -189,6 +190,7 @@ async function callAnthropic(ctx: RunContext, agent: Agent, apiKey: string): Pro
       runId: ctx.runId,
       traceId: ctx.traceId,
       err,
+      metric: { 'runs.error': 1 },
     });
     return {
       status: 'error',

@@ -43,4 +43,4 @@ logger.info({
 });
 ```
 
-The values are queryable in CloudWatch Logs Insights. The logger does not yet wrap them in the CloudWatch EMF envelope, so they do not become CloudWatch metrics — see the known gap in [observability](../architecture/observability.md#metrics).
+The values are queryable in CloudWatch Logs Insights. In deployed (non-pretty) mode the logger also wraps them in the CloudWatch EMF envelope, so each value becomes a metric in the custom `AgentVillage` namespace — see [observability](../architecture/observability.md#metrics) for the unit conventions and the alarms that watch them.
