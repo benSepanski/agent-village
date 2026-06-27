@@ -1,5 +1,5 @@
 import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
-import { SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
+import { SecurityGroup, SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
 import { Repository, TagMutability } from 'aws-cdk-lib/aws-ecr';
 import {
   Cluster,
@@ -9,6 +9,13 @@ import {
   LogDrivers,
   OperatingSystemFamily,
 } from 'aws-cdk-lib/aws-ecs';
+import {
+  AccountRootPrincipal,
+  CompositePrincipal,
+  type IRole,
+  Role,
+  ServicePrincipal,
+} from 'aws-cdk-lib/aws-iam';
 import { LogGroup } from 'aws-cdk-lib/aws-logs';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import type { Construct } from 'constructs';
@@ -22,6 +29,10 @@ export interface SandboxStackProps extends StackProps {
 const NONCURRENT_VERSION_DAYS_DEV = 30;
 const NONCURRENT_VERSION_DAYS_PROD = 90;
 const MAX_BASE_IMAGES = 10;
+// A run may last up to manifest.timeoutMinutes (≤120 min); the launcher injects
+// STS session credentials that must outlive the whole run, so the role's
+// max session must be ≥ 2h (default is 1h).
+const TASK_ROLE_SESSION_HOURS = 2;
 
 /**
  * Compute + storage for sandboxed application runs (ADR 0002): a versioned
@@ -34,6 +45,10 @@ export class SandboxStack extends Stack {
   public readonly baseImageRepository: Repository;
   public readonly cluster: Cluster;
   public readonly taskDefinition: FargateTaskDefinition;
+  public readonly taskRole: Role;
+  public readonly executionRole: IRole;
+  public readonly securityGroup: SecurityGroup;
+  public readonly subnetIds: string[];
 
   /** Fixed AZs so synth never performs an AWS context lookup (CI has no credentials). */
   public override get availabilityZones(): string[] {
@@ -45,8 +60,22 @@ export class SandboxStack extends Stack {
     const { config } = props;
     this.workspaceBucket = this.buildWorkspaceBucket(config);
     this.baseImageRepository = this.buildImageRepository(config);
-    this.cluster = this.buildCluster(config);
+
+    const vpc = this.buildVpc();
+    this.subnetIds = vpc.publicSubnets.map((subnet) => subnet.subnetId);
+    this.securityGroup = new SecurityGroup(this, 'SandboxSecurityGroup', {
+      vpc,
+      allowAllOutbound: true,
+      description:
+        'Sandbox task egress (domain allowlisting via the egress proxy lands in step 07)',
+    });
+    this.cluster = new Cluster(this, 'SandboxCluster', {
+      vpc,
+      clusterName: `${config.prefix}-sandbox`,
+    });
+    this.taskRole = this.buildTaskRole();
     this.taskDefinition = this.buildTaskDefinition(config);
+    this.executionRole = this.taskDefinition.obtainExecutionRole();
 
     new CfnOutput(this, 'WorkspaceBucketName', { value: this.workspaceBucket.bucketName });
     new CfnOutput(this, 'BaseImageRepositoryUri', {
@@ -83,18 +112,30 @@ export class SandboxStack extends Stack {
     });
   }
 
-  private buildCluster(config: EnvConfig): Cluster {
+  private buildVpc(): Vpc {
     // Public subnets + no NAT gateway: NAT costs ~$32/mo idle, while per-run
     // public IPs are free-tier-scale. Egress restriction is enforced by the
     // proxy + security groups (phase 2), not by private networking.
-    const vpc = new Vpc(this, 'SandboxVpc', {
+    return new Vpc(this, 'SandboxVpc', {
       availabilityZones: this.availabilityZones,
       natGateways: 0,
       subnetConfiguration: [{ name: 'public', subnetType: SubnetType.PUBLIC }],
     });
-    return new Cluster(this, 'SandboxCluster', {
-      vpc,
-      clusterName: `${config.prefix}-sandbox`,
+  }
+
+  private buildTaskRole(): Role {
+    // Trusts ECS (to run the task) and the account root: the launcher Lambda is
+    // granted sts:AssumeRole on this role at the app level, which — combined with
+    // account-root trust — lets it mint prefix-scoped per-run credentials without
+    // a cross-stack trust edge (which would create a stack dependency cycle).
+    return new Role(this, 'SandboxTaskRole', {
+      assumedBy: new CompositePrincipal(
+        new ServicePrincipal('ecs-tasks.amazonaws.com'),
+        new AccountRootPrincipal(),
+      ),
+      maxSessionDuration: Duration.hours(TASK_ROLE_SESSION_HOURS),
+      description:
+        'Sandbox task role; narrowed per run to one workspace prefix via STS session policy',
     });
   }
 
@@ -108,6 +149,7 @@ export class SandboxStack extends Stack {
       family: `${config.prefix}-sandbox`,
       cpu: config.sandboxTaskCpu,
       memoryLimitMiB: config.sandboxTaskMemoryMb,
+      taskRole: this.taskRole,
       runtimePlatform: {
         cpuArchitecture: CpuArchitecture.ARM64,
         operatingSystemFamily: OperatingSystemFamily.LINUX,
@@ -123,9 +165,9 @@ export class SandboxStack extends Stack {
         AV_WORKSPACE_BUCKET: this.workspaceBucket.bucketName,
       },
     });
-    // Task-role ceiling: bucket-wide read/write. The launcher (phase 2) narrows
-    // each run to its own workspacePrefix via an STS session policy.
-    this.workspaceBucket.grantReadWrite(taskDefinition.taskRole);
+    // Task-role ceiling: bucket-wide read/write. The launcher narrows each run
+    // to its own workspacePrefix via an STS session policy.
+    this.workspaceBucket.grantReadWrite(this.taskRole);
     return taskDefinition;
   }
 }

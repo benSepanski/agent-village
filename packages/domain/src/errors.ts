@@ -51,6 +51,17 @@ export class ReplayPromptMismatchError extends Error {
   }
 }
 
+export class AgentRunInProgressError extends Error {
+  readonly statusCode = 409;
+  readonly details: { agentId: string };
+
+  constructor(agentId: string) {
+    super(`a run is already in progress for agent ${agentId}`);
+    this.name = 'AgentRunInProgressError';
+    this.details = { agentId };
+  }
+}
+
 export class InvalidScheduleError extends Error {
   readonly statusCode = 400;
   readonly details: { schedule: string; reason?: string };

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { AgentNotFoundError, InvalidScheduleError, SpendLimitExceededError } from './errors.js';
+import {
+  AgentNotFoundError,
+  AgentRunInProgressError,
+  InvalidScheduleError,
+  SpendLimitExceededError,
+} from './errors.js';
 
 describe('SpendLimitExceededError', () => {
   it('carries details and a 402 status', () => {
@@ -24,6 +29,16 @@ describe('AgentNotFoundError', () => {
     expect(err.name).toBe('AgentNotFoundError');
     expect(err.message).toContain('agent-2');
     expect(err.details.agentId).toBe('agent-2');
+  });
+});
+
+describe('AgentRunInProgressError', () => {
+  it('carries an agentId and a 409 status', () => {
+    const err = new AgentRunInProgressError('agent-3');
+    expect(err.statusCode).toBe(409);
+    expect(err.name).toBe('AgentRunInProgressError');
+    expect(err.message).toContain('agent-3');
+    expect(err.details.agentId).toBe('agent-3');
   });
 });
 

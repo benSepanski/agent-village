@@ -44,3 +44,23 @@ export function actualCost(model: AnthropicModel, usage: TokenUsage): number {
 export function pricingFor(model: AnthropicModel): ModelPricing {
   return PRICING[model];
 }
+
+// Fargate ARM64 (us-east-1) public-list pricing. Update if AWS adjusts prices.
+const FARGATE_VCPU_PER_HOUR = 0.04048;
+const FARGATE_GB_PER_HOUR = 0.004445;
+const CPU_UNITS_PER_VCPU = 1024;
+const MIB_PER_GB = 1024;
+const MINUTES_PER_HOUR = 60;
+
+/**
+ * Worst-case compute cost of a single sandbox run: the task billed at full
+ * `cpu`/`memMb` for its entire `timeoutMinutes`. Used to reserve spend before
+ * launching, so a runaway schedule can't exceed an agent's spend limit. Actual
+ * per-second Fargate cost reconciliation is a future refinement.
+ */
+export function estimateSandboxCost(timeoutMinutes: number, cpu: number, memMb: number): number {
+  const vcpus = cpu / CPU_UNITS_PER_VCPU;
+  const gib = memMb / MIB_PER_GB;
+  const perHour = vcpus * FARGATE_VCPU_PER_HOUR + gib * FARGATE_GB_PER_HOUR;
+  return (perHour * timeoutMinutes) / MINUTES_PER_HOUR;
+}
