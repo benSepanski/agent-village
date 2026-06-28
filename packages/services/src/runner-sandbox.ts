@@ -1,9 +1,5 @@
 import { agentRepo, runRepo } from '@agent-village/data';
-import {
-  AgentRunInProgressError,
-  SpendLimitExceededError,
-  estimateSandboxCost,
-} from '@agent-village/domain';
+import { SpendLimitExceededError, estimateSandboxCost } from '@agent-village/domain';
 import {
   RunSchema,
   type Agent,
@@ -137,7 +133,10 @@ async function acquireGuard(
       runId: ctx.runId,
     });
   } catch (err) {
-    if (err instanceof AgentRunInProgressError) await refund(ctx, agent, estimateUsd);
+    // The slot was never claimed, so the reservation is dead either way
+    // (an in-flight run already holds it, or the write failed transiently).
+    // Refund it before rethrowing so the estimate isn't leaked against the limit.
+    await refund(ctx, agent, estimateUsd);
     throw err;
   }
 }
@@ -151,6 +150,7 @@ async function onLaunchFailure(
   await runRepo.patchRun(agent.id, run.createdAt, ctx.runId, {
     status: 'launch_failed',
     error: errMessage,
+    costUsd: 0,
   });
   await agentRepo.releaseActiveRun({
     agentId: agent.id,
@@ -171,14 +171,28 @@ async function launchAndRecord(
   const run = buildSandboxRun(ctx, agent, estimateUsd, null);
   await runRepo.append(run);
   logger.info({ event: 'agent.run.persisted', ...runLog(ctx) });
+  let taskArn: string;
   try {
-    const taskArn = await launchSandboxRun({ agent, manifest, runId: ctx.runId });
-    await runRepo.patchRun(agent.id, run.createdAt, ctx.runId, { taskArn });
-    return { runId: ctx.runId, status: 'running' };
+    taskArn = await launchSandboxRun({ agent, manifest, runId: ctx.runId });
   } catch (err) {
+    // Only a RunTask failure means nothing is running: roll back the slot/spend.
     await onLaunchFailure(ctx, agent, run, err instanceof Error ? err.message : String(err));
     throw err;
   }
+  // The task is now live. A failure to stamp taskArn must NOT release the guard
+  // or refund — that would orphan a running task and let a second one launch.
+  // The lifecycle handler still recovers the run via startedBy, so this is
+  // best-effort: log and continue.
+  try {
+    await runRepo.patchRun(agent.id, run.createdAt, ctx.runId, { taskArn });
+  } catch (err) {
+    logger.warn({
+      event: 'sandbox.run.task_arn_patch_failed',
+      ...runLog(ctx),
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return { runId: ctx.runId, status: 'running' };
 }
 
 /**

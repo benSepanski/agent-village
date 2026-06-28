@@ -262,6 +262,38 @@ describe('executeRun (sandbox)', () => {
     expect(agentRepoMock.finalizeSpend.mock.calls[0]![0].deltaUsd).toBeLessThan(0);
   });
 
+  it('keeps the run running when the taskArn patch fails after a successful launch', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(sandboxAgent);
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    agentRepoMock.acquireActiveRun.mockResolvedValue(undefined);
+    agentRepoMock.releaseActiveRun.mockResolvedValue(undefined);
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+    runRepoMock.append.mockResolvedValue(undefined);
+    runRepoMock.patchRun.mockRejectedValue(new Error('ddb throttle'));
+    sandboxMock.launchSandboxRun.mockResolvedValue(TASK_ARN);
+
+    const result = await executeRun({ agentId: AGENT_ID });
+
+    // The task is live: do not orphan it by releasing the slot or refunding.
+    expect(result.status).toBe('running');
+    expect(runRepoMock.patchRun.mock.calls.some((c) => c[3].status === 'launch_failed')).toBe(
+      false,
+    );
+    expect(agentRepoMock.releaseActiveRun).not.toHaveBeenCalled();
+    expect(agentRepoMock.finalizeSpend).not.toHaveBeenCalled();
+  });
+
+  it('refunds the reservation when acquiring the slot fails unexpectedly', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(sandboxAgent);
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    agentRepoMock.acquireActiveRun.mockRejectedValue(new Error('ddb throttle'));
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+
+    await expect(executeRun({ agentId: AGENT_ID })).rejects.toThrow('ddb throttle');
+    expect(sandboxMock.launchSandboxRun).not.toHaveBeenCalled();
+    expect(agentRepoMock.finalizeSpend.mock.calls[0]![0].deltaUsd).toBeLessThan(0);
+  });
+
   it('records spend_limit_exceeded without acquiring the slot or launching', async () => {
     agentRepoMock.getAgentById.mockResolvedValue(sandboxAgent);
     agentRepoMock.reserveSpend.mockRejectedValue(
