@@ -26,6 +26,10 @@ export const LOG_EVENTS = [
   'sandbox.run.flush',
   'sandbox.run.app_exited',
   'sandbox.run.sync_up',
+  // Launcher + lifecycle events (emitted by the runner/lifecycle Lambdas):
+  'sandbox.run.launched',
+  'sandbox.run.launch_failed',
+  'sandbox.run.finalized',
 ] as const;
 
 export type LogEvent = (typeof LOG_EVENTS)[number];

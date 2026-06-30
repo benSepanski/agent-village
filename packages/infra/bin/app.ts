@@ -22,10 +22,14 @@ const stackEnv = {
 
 const data = new DataStack(app, `${config.prefix}-data`, { env: stackEnv, config });
 const auth = new AuthStack(app, `${config.prefix}-auth`, { env: stackEnv, config });
+// Sandbox is constructed before the runner so the runner gets its cluster/task
+// references for launching and for the lifecycle EventBridge rule.
+const sandbox = new SandboxStack(app, `${config.prefix}-sandbox`, { env: stackEnv, config });
 const runner = new RunnerStack(app, `${config.prefix}-runner`, {
   env: stackEnv,
   config,
   table: data.table,
+  sandbox,
 });
 const api = new ApiStack(app, `${config.prefix}-api`, {
   env: stackEnv,
@@ -37,13 +41,17 @@ const api = new ApiStack(app, `${config.prefix}-api`, {
   scheduleGroupName: runner.scheduleGroupName,
   schedulerInvokeRole: runner.schedulerInvokeRole,
 });
-const sandbox = new SandboxStack(app, `${config.prefix}-sandbox`, { env: stackEnv, config });
 const web = new WebStack(app, `${config.prefix}-web`, { env: stackEnv, config });
 const monitoring = new MonitoringStack(app, `${config.prefix}-monitoring`, {
   env: stackEnv,
   config,
   runnerFunction: runner.runnerFunction,
 });
+
+// The runner Lambda assumes the sandbox task role (with a per-run session policy)
+// to mint workspace-prefix-scoped credentials. Wired at the app level so the
+// trust edge doesn't create a runner<->sandbox stack dependency cycle.
+sandbox.taskRole.grantAssumeRole(runner.runnerFunction.grantPrincipal);
 
 for (const stack of [data, auth, api, runner, sandbox, web, monitoring]) {
   Tags.of(stack).add('Project', 'agent-village');
@@ -131,11 +139,13 @@ NagSuppressions.addStackSuppressions(runner, [
   {
     id: 'AwsSolutions-IAM5',
     reason:
-      'Per-agent secret ARNs are dynamic; DDB GSI access requires /index/* on the table ARN; scheduler invoke role is scoped to the runner Lambda only.',
+      'Per-agent secret ARNs are dynamic; DDB GSI access requires /index/* on the table ARN; scheduler invoke role is scoped to the runner Lambda only. ecs:RunTask is scoped to the single sandbox task-definition family (revision wildcard is required — RunTask cannot target a fixed revision sanely); account is wildcarded only so the suppression is deterministic during credential-free synth.',
     appliesTo: [
       'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/dev/agents/*/anthropic-key-*',
       'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/prod/agents/*/anthropic-key-*',
       'Resource::<TableCD117FA1.Arn>/index/*',
+      'Resource::arn:aws:ecs:us-east-1:*:task-definition/agent-village-dev-sandbox:*',
+      'Resource::arn:aws:ecs:us-east-1:*:task-definition/agent-village-prod-sandbox:*',
     ],
   },
 ]);

@@ -68,6 +68,18 @@ describe('SandboxStack', () => {
     });
   });
 
+  it('gives the task role a 2h max session so injected creds outlive a long run', () => {
+    template.hasResourceProperties('AWS::IAM::Role', {
+      MaxSessionDuration: 7200,
+    });
+  });
+
+  it('creates an egress security group for the sandbox tasks', () => {
+    template.hasResourceProperties('AWS::EC2::SecurityGroup', {
+      GroupDescription: Match.stringLikeRegexp('Sandbox task egress'),
+    });
+  });
+
   it('grants the task role access to the workspace bucket only', () => {
     const policies = template.findResources('AWS::IAM::Policy');
     const statements = Object.values(policies).flatMap(

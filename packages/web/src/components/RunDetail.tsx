@@ -6,25 +6,47 @@ export interface RunDetailProps {
   cloudWatchLink?: string;
 }
 
+function SandboxMeta({ run }: { run: Run }) {
+  return (
+    <>
+      <dt>Task</dt>
+      <dd>
+        <code>{run.taskArn ?? '—'}</code>
+      </dd>
+      <dt>Exit code</dt>
+      <dd>{run.exitCode ?? '—'}</dd>
+    </>
+  );
+}
+
 function RunMeta({ run, cloudWatchLink }: RunDetailProps) {
+  const isSandbox = run.kind === 'sandbox';
   return (
     <dl style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 4 }}>
+      <dt>Kind</dt>
+      <dd>{run.kind}</dd>
       <dt>Started</dt>
       <dd>{run.createdAt}</dd>
       <dt>Duration</dt>
       <dd>{run.durationMs}ms</dd>
       <dt>Cost</dt>
       <dd>${run.costUsd.toFixed(4)}</dd>
-      <dt>Tokens</dt>
-      <dd>
-        in={run.tokensIn} out={run.tokensOut}
-      </dd>
-      <dt>Model</dt>
-      <dd>{run.model}</dd>
-      <dt>Prompt hash</dt>
-      <dd>
-        <code>{run.systemPromptHash}</code>
-      </dd>
+      {isSandbox ? (
+        <SandboxMeta run={run} />
+      ) : (
+        <>
+          <dt>Tokens</dt>
+          <dd>
+            in={run.tokensIn} out={run.tokensOut}
+          </dd>
+          <dt>Model</dt>
+          <dd>{run.model ?? '—'}</dd>
+          <dt>Prompt hash</dt>
+          <dd>
+            <code>{run.systemPromptHash ?? '—'}</code>
+          </dd>
+        </>
+      )}
       <dt>Trace</dt>
       <dd>
         <code>{run.traceId}</code>

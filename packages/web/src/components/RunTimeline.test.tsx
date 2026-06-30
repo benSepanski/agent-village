@@ -10,6 +10,7 @@ const baseRun: Run = {
   agentId: '01HZ1234567890ABCDEFGHJKMN' as Run['agentId'],
   ownerSub: 'cog-sub' as Run['ownerSub'],
   status: 'ok',
+  kind: 'inline',
   costUsd: 0.001,
   tokensIn: 10,
   tokensOut: 20,
@@ -21,6 +22,8 @@ const baseRun: Run = {
   systemPromptHash: 'sha256:abc',
   dryRun: false,
   replayOfRunId: null,
+  taskArn: null,
+  exitCode: null,
   createdAt: '2026-05-16T12:00:00.000Z',
 };
 
@@ -41,6 +44,34 @@ describe('RunTimeline', () => {
   it('shows agent.run.failed for status=error', () => {
     render(<RunTimeline run={{ ...baseRun, status: 'error', error: 'boom', output: null }} />);
     expect(screen.getByText('agent.run.failed')).toBeDefined();
+    expect(screen.queryByText('agent.run.completed')).toBeNull();
+  });
+
+  it('renders the sandbox sequence for a completed sandbox run', () => {
+    render(
+      <RunTimeline
+        run={{ ...baseRun, kind: 'sandbox', model: null, systemPromptHash: null, exitCode: 0 }}
+      />,
+    );
+    expect(screen.getByText('sandbox.run.sync_down')).toBeDefined();
+    expect(screen.getByText('sandbox.run.app_exited')).toBeDefined();
+    expect(screen.getByText('agent.run.completed')).toBeDefined();
+    expect(screen.queryByText('agent.run.anthropic_call')).toBeNull();
+  });
+
+  it('stops at a running marker for an in-flight sandbox run', () => {
+    render(
+      <RunTimeline
+        run={{
+          ...baseRun,
+          kind: 'sandbox',
+          status: 'running',
+          model: null,
+          systemPromptHash: null,
+        }}
+      />,
+    );
+    expect(screen.getByText('sandbox.run.running')).toBeDefined();
     expect(screen.queryByText('agent.run.completed')).toBeNull();
   });
 });

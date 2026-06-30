@@ -6,16 +6,22 @@ import {
   QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { AgentNotFoundError, SpendLimitExceededError } from '@agent-village/domain';
+import {
+  AgentNotFoundError,
+  AgentRunInProgressError,
+  SpendLimitExceededError,
+} from '@agent-village/domain';
 import { createDynamoMock, type DynamoMock } from '../../test-utils/dynamodb-mock.js';
 import { resetDocumentClient } from './client.js';
 import {
+  acquireActiveRun,
   createAgent,
   deleteAgent,
   finalizeSpend,
   getAgent,
   getAgentById,
   listMyAgents,
+  releaseActiveRun,
   reserveSpend,
   updateAgent,
 } from './agents.js';
@@ -186,5 +192,46 @@ describe('finalizeSpend', () => {
     const call = mock.commandCalls(UpdateCommand)[0]!;
     expect(call.args[0].input.ExpressionAttributeValues?.[':delta']).toBe(-0.02);
     expect(call.args[0].input.ConditionExpression).toBeUndefined();
+  });
+});
+
+const RUN_ID = '01HZN0PQRSTVWXYZ0123456789';
+
+describe('acquireActiveRun', () => {
+  it('conditionally sets activeRunId when no run is in flight', async () => {
+    mock.on(UpdateCommand).resolves({});
+    await acquireActiveRun({ agentId: AGENT_ID, ownerSub: SUB, runId: RUN_ID });
+    const call = mock.commandCalls(UpdateCommand)[0]!;
+    expect(call.args[0].input.UpdateExpression).toContain('SET activeRunId = :runId');
+    expect(call.args[0].input.ConditionExpression).toContain('attribute_not_exists(activeRunId)');
+    expect(call.args[0].input.ExpressionAttributeValues?.[':runId']).toBe(RUN_ID);
+  });
+
+  it('throws AgentRunInProgressError when a run is already active', async () => {
+    mock
+      .on(UpdateCommand)
+      .rejects(Object.assign(new Error('busy'), { name: 'ConditionalCheckFailedException' }));
+    await expect(
+      acquireActiveRun({ agentId: AGENT_ID, ownerSub: SUB, runId: RUN_ID }),
+    ).rejects.toBeInstanceOf(AgentRunInProgressError);
+  });
+});
+
+describe('releaseActiveRun', () => {
+  it('clears activeRunId only when it still matches runId', async () => {
+    mock.on(UpdateCommand).resolves({});
+    await releaseActiveRun({ agentId: AGENT_ID, ownerSub: SUB, runId: RUN_ID });
+    const call = mock.commandCalls(UpdateCommand)[0]!;
+    expect(call.args[0].input.UpdateExpression).toContain('SET activeRunId = :null');
+    expect(call.args[0].input.ConditionExpression).toBe('activeRunId = :runId');
+  });
+
+  it('is a no-op when the slot was already cleared or reclaimed', async () => {
+    mock
+      .on(UpdateCommand)
+      .rejects(Object.assign(new Error('stale'), { name: 'ConditionalCheckFailedException' }));
+    await expect(
+      releaseActiveRun({ agentId: AGENT_ID, ownerSub: SUB, runId: RUN_ID }),
+    ).resolves.toBeUndefined();
   });
 });

@@ -18,6 +18,12 @@ describe('LOG_EVENTS', () => {
     expect(LOG_EVENTS).toContain('agent.run.failed');
   });
 
+  it('contains the sandbox run launcher + lifecycle events', () => {
+    expect(LOG_EVENTS).toContain('sandbox.run.launched');
+    expect(LOG_EVENTS).toContain('sandbox.run.launch_failed');
+    expect(LOG_EVENTS).toContain('sandbox.run.finalized');
+  });
+
   it('has unique event names', () => {
     const set = new Set<string>(LOG_EVENTS);
     expect(set.size).toBe(LOG_EVENTS.length);

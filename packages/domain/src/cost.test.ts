@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actualCost, estimateCost, pricingFor } from './cost.js';
+import { actualCost, estimateCost, estimateSandboxCost, pricingFor } from './cost.js';
 
 describe('estimateCost', () => {
   it('uses output pricing for the given model and max-tokens cap', () => {
@@ -24,6 +24,25 @@ describe('actualCost', () => {
 
   it('is zero for zero usage', () => {
     expect(actualCost('claude-opus-4-7', { inputTokens: 0, outputTokens: 0 })).toBe(0);
+  });
+});
+
+describe('estimateSandboxCost', () => {
+  it('bills cpu + memory for the full timeout window', () => {
+    // 0.25 vCPU + 0.5 GiB for 60 min:
+    // 0.25*0.04048 + 0.5*0.004445 = 0.0123425
+    expect(estimateSandboxCost(60, 256, 512)).toBeCloseTo(0.0123425, 6);
+  });
+
+  it('scales linearly with the timeout', () => {
+    expect(estimateSandboxCost(120, 256, 512)).toBeCloseTo(
+      2 * estimateSandboxCost(60, 256, 512),
+      6,
+    );
+  });
+
+  it('is more expensive for a larger task', () => {
+    expect(estimateSandboxCost(30, 512, 1024)).toBeGreaterThan(estimateSandboxCost(30, 256, 512));
   });
 });
 

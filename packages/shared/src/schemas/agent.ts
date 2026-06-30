@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AgentId, UserId } from './ids.js';
+import { ApplicationManifest } from './manifest.js';
 
 export const ANTHROPIC_MODELS = [
   'claude-opus-4-7',
@@ -27,6 +28,12 @@ export const AgentSchema = z.object({
   spendUsedUsd: z.number().nonnegative(),
   anthropicSecretArn: z.string().min(1),
   status: AgentStatus,
+  // Phase-2 containerized application contract; null for inline (Phase-1)
+  // agents. The runner launches a sandbox task when this is set.
+  manifest: ApplicationManifest.nullable().default(null),
+  // Holds the in-flight run id while a sandbox run is active; enforces the
+  // one-concurrent-run-per-agent invariant. Null when no run is in flight.
+  activeRunId: z.string().nullable().default(null),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

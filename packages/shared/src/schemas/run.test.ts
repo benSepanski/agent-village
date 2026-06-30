@@ -67,3 +67,51 @@ describe('RunPersisted', () => {
     expect(RunPersisted.parse(validRun)).toEqual(RunSchema.parse(validRun));
   });
 });
+
+describe('RunSchema (sandbox kind)', () => {
+  const sandboxRun = {
+    id: '01HZN0PQRSTVWXYZ0123456789',
+    agentId: '01HZ1234567890ABCDEFGHJKMN',
+    ownerSub: 'cog-sub-abc-123',
+    status: 'running',
+    kind: 'sandbox',
+    costUsd: 0.01,
+    output: null,
+    error: null,
+    durationMs: 0,
+    traceId: 'Root=1-abc-def',
+    model: null,
+    systemPromptHash: null,
+    dryRun: false,
+    taskArn: 'arn:aws:ecs:us-east-1:0:task/agent-village-dev-sandbox/abc',
+    exitCode: null,
+    createdAt: '2026-05-16T12:00:00.000Z',
+  };
+
+  it('accepts the new running / timed_out / launch_failed statuses', () => {
+    expect(RunStatus.parse('running')).toBe('running');
+    expect(RunStatus.parse('timed_out')).toBe('timed_out');
+    expect(RunStatus.parse('launch_failed')).toBe('launch_failed');
+  });
+
+  it('parses a sandbox run with null model / systemPromptHash and defaults tokens to 0', () => {
+    const parsed = RunSchema.parse(sandboxRun);
+    expect(parsed.kind).toBe('sandbox');
+    expect(parsed.model).toBeNull();
+    expect(parsed.tokensIn).toBe(0);
+    expect(parsed.tokensOut).toBe(0);
+    expect(parsed.taskArn).toContain('task/');
+  });
+
+  it('defaults kind to inline and applies null sandbox fields for legacy runs', () => {
+    const parsed = RunSchema.parse(validRun);
+    expect(parsed.kind).toBe('inline');
+    expect(parsed.taskArn).toBeNull();
+    expect(parsed.exitCode).toBeNull();
+  });
+
+  it('rejects an inline run missing its model or systemPromptHash', () => {
+    expect(() => RunSchema.parse({ ...validRun, model: null })).toThrow();
+    expect(() => RunSchema.parse({ ...validRun, systemPromptHash: null })).toThrow();
+  });
+});

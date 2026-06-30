@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { RunNotFoundError } from '@agent-village/domain';
 import { createDynamoMock, type DynamoMock } from '../../test-utils/dynamodb-mock.js';
 import { resetDocumentClient } from './client.js';
-import { append, getOne, listForAgent } from './runs.js';
+import { append, getOne, listForAgent, patchRun } from './runs.js';
 
 const SUB = 'cog-sub-abc';
 const AGENT_ID = '01HZ1234567890ABCDEFGHJKMN';
@@ -105,5 +106,35 @@ describe('getOne', () => {
       .resolvesOnce({ Items: [] });
     expect(await getOne(AGENT_ID, RUN_ID)).toBeNull();
     expect(mock.commandCalls(QueryCommand)).toHaveLength(2);
+  });
+});
+
+describe('patchRun', () => {
+  it('updates the run keyed on its createdAt-prefixed sort key and re-parses ALL_NEW', async () => {
+    const updated = { ...runItem, status: 'ok', exitCode: 0, durationMs: 5000 };
+    mock.on(UpdateCommand).resolves({ Attributes: updated });
+    const run = await patchRun(AGENT_ID, runItem.createdAt, RUN_ID, {
+      status: 'ok',
+      exitCode: 0,
+      durationMs: 5000,
+    });
+    const call = mock.commandCalls(UpdateCommand)[0]!;
+    expect(call.args[0].input.Key).toEqual({
+      pk: `AGENT#${AGENT_ID}`,
+      sk: `RUN#${runItem.createdAt}#${RUN_ID}`,
+    });
+    expect(call.args[0].input.UpdateExpression).toContain('#status = :status');
+    expect(call.args[0].input.ConditionExpression).toContain('attribute_exists');
+    expect(run.status).toBe('ok');
+    expect(run.exitCode).toBe(0);
+  });
+
+  it('throws RunNotFoundError when the run no longer exists', async () => {
+    mock
+      .on(UpdateCommand)
+      .rejects(Object.assign(new Error('gone'), { name: 'ConditionalCheckFailedException' }));
+    await expect(
+      patchRun(AGENT_ID, runItem.createdAt, RUN_ID, { status: 'error' }),
+    ).rejects.toBeInstanceOf(RunNotFoundError);
   });
 });

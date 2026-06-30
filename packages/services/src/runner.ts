@@ -20,8 +20,12 @@ import {
   type UserId,
 } from '@agent-village/shared';
 import { getMyAgent } from './agent.js';
+import { executeSandboxRun } from './runner-sandbox.js';
 import { logger } from './logger.js';
 import { ulid } from './ulid.js';
+
+export { finalizeSandboxRun } from './sandbox-lifecycle.js';
+export type { FinalizeSandboxRunInput } from './sandbox-lifecycle.js';
 
 export async function listForAgent(ownerSub: UserId, agentId: AgentId): Promise<Run[]> {
   await getMyAgent(ownerSub, agentId);
@@ -299,6 +303,9 @@ export async function executeRun(input: ExecuteRunInput): Promise<ExecuteRunResu
     replayOfRunId: ctx.replayOfRunId ?? null,
   });
   const agent = await loadAgent(ctx);
+  // Agents with a manifest run as a sandboxed Fargate task (async). The run
+  // record finishes via the lifecycle handler, not inline here.
+  if (agent.manifest) return executeSandboxRun(ctx, agent);
   await verifyReplay(ctx, agent);
   const estimateUsd = estimateCost(agent.model, ctx.maxTokens);
   if (!(await reserve(ctx, agent, estimateUsd))) {

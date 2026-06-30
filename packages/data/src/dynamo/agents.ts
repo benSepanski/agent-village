@@ -11,9 +11,15 @@ import {
   type AgentId,
   type AgentStatus,
   type AnthropicModel,
+  type ApplicationManifest,
+  type RunId,
   type UserId,
 } from '@agent-village/shared';
-import { AgentNotFoundError, SpendLimitExceededError } from '@agent-village/domain';
+import {
+  AgentNotFoundError,
+  AgentRunInProgressError,
+  SpendLimitExceededError,
+} from '@agent-village/domain';
 import { getConfig, getDocumentClient } from './client.js';
 import {
   AGENT_GSI1SK_META,
@@ -33,6 +39,8 @@ export type AgentPatch = Partial<{
   spendLimitUsd: number;
   anthropicSecretArn: string;
   status: AgentStatus;
+  manifest: ApplicationManifest | null;
+  activeRunId: string | null;
 }>;
 
 interface AgentItem {
@@ -223,4 +231,57 @@ export async function finalizeSpend(input: FinalizeSpendInput): Promise<void> {
       ExpressionAttributeValues: { ':delta': input.deltaUsd },
     }),
   );
+}
+
+interface ActiveRunInput {
+  agentId: AgentId;
+  ownerSub: UserId;
+  runId: RunId;
+}
+
+/**
+ * Claim the agent's single concurrent-run slot for `runId`. Fails if a run is
+ * already in flight (ADR 0002: one run at a time per agent) — the conditional
+ * write makes the check-and-set atomic across overlapping schedule firings.
+ */
+export async function acquireActiveRun(input: ActiveRunInput): Promise<void> {
+  const { tableName } = getConfig();
+  try {
+    await getDocumentClient().send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: { pk: userPk(input.ownerSub), sk: agentSk(input.agentId) },
+        UpdateExpression: 'SET activeRunId = :runId',
+        ConditionExpression:
+          'attribute_exists(pk) AND (attribute_not_exists(activeRunId) OR activeRunId = :null)',
+        ExpressionAttributeValues: { ':runId': input.runId, ':null': null },
+      }),
+    );
+  } catch (err) {
+    if (isConditionalCheckFailed(err)) throw new AgentRunInProgressError(input.agentId);
+    throw err;
+  }
+}
+
+/**
+ * Release the concurrent-run slot, but only if it still belongs to `runId`. A
+ * stale release (the slot was already cleared or reclaimed by a newer run) is a
+ * no-op, never a clobber.
+ */
+export async function releaseActiveRun(input: ActiveRunInput): Promise<void> {
+  const { tableName } = getConfig();
+  try {
+    await getDocumentClient().send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: { pk: userPk(input.ownerSub), sk: agentSk(input.agentId) },
+        UpdateExpression: 'SET activeRunId = :null',
+        ConditionExpression: 'activeRunId = :runId',
+        ExpressionAttributeValues: { ':runId': input.runId, ':null': null },
+      }),
+    );
+  } catch (err) {
+    if (isConditionalCheckFailed(err)) return;
+    throw err;
+  }
 }

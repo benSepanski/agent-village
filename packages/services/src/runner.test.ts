@@ -1,21 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AgentNotFoundError,
+  AgentRunInProgressError,
   ReplayPromptMismatchError,
   RunNotFoundError,
   SpendLimitExceededError,
   hashSystemPrompt,
 } from '@agent-village/domain';
 
-const { agentRepoMock, runRepoMock, secretsMock } = vi.hoisted(() => ({
+const { agentRepoMock, runRepoMock, secretsMock, sandboxMock } = vi.hoisted(() => ({
   agentRepoMock: {
     getAgent: vi.fn(),
     getAgentById: vi.fn(),
     reserveSpend: vi.fn(),
     finalizeSpend: vi.fn(),
+    acquireActiveRun: vi.fn(),
+    releaseActiveRun: vi.fn(),
   },
-  runRepoMock: { append: vi.fn(), getOne: vi.fn() },
+  runRepoMock: { append: vi.fn(), getOne: vi.fn(), patchRun: vi.fn() },
   secretsMock: { getAnthropicKey: vi.fn() },
+  sandboxMock: { launchSandboxRun: vi.fn() },
 }));
 
 vi.mock('@agent-village/data', () => ({
@@ -24,6 +28,8 @@ vi.mock('@agent-village/data', () => ({
   secrets: secretsMock,
   userRepo: {},
 }));
+
+vi.mock('./sandbox.js', () => ({ launchSandboxRun: sandboxMock.launchSandboxRun }));
 
 import { executeRun, setAnthropicFactory } from './runner.js';
 
@@ -60,6 +66,8 @@ beforeEach(() => {
   Object.values(agentRepoMock).forEach((m) => m.mockReset());
   runRepoMock.append.mockReset();
   runRepoMock.getOne.mockReset();
+  runRepoMock.patchRun.mockReset();
+  sandboxMock.launchSandboxRun.mockReset();
   secretsMock.getAnthropicKey.mockReset();
   anthropicClient.messages.create.mockReset();
   setAnthropicFactory(() => anthropicClient as never);
@@ -188,6 +196,90 @@ describe('executeRun (reservation refund)', () => {
     expect(agentRepoMock.finalizeSpend).toHaveBeenCalledTimes(1);
     expect(agentRepoMock.finalizeSpend.mock.calls[0]![0].deltaUsd).toBeLessThan(0);
     expect(runRepoMock.append).not.toHaveBeenCalled();
+  });
+});
+
+describe('executeRun (sandbox)', () => {
+  const sandboxAgent = {
+    ...agentFixture,
+    manifest: {
+      name: 'reporter',
+      image: 'acct.dkr.ecr.us-east-1.amazonaws.com/app:latest',
+      schedule: null,
+      timeoutMinutes: 30,
+      egressAllow: [],
+      grants: [],
+      flushIntervalSeconds: 300,
+    },
+  };
+  const TASK_ARN = 'arn:aws:ecs:us-east-1:0:task/abc';
+
+  it('launches a Fargate task and persists a running sandbox run', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(sandboxAgent);
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    agentRepoMock.acquireActiveRun.mockResolvedValue(undefined);
+    runRepoMock.append.mockResolvedValue(undefined);
+    runRepoMock.patchRun.mockResolvedValue(undefined);
+    sandboxMock.launchSandboxRun.mockResolvedValue(TASK_ARN);
+
+    const result = await executeRun({ agentId: AGENT_ID });
+
+    expect(result.status).toBe('running');
+    expect(anthropicClient.messages.create).not.toHaveBeenCalled();
+    expect(sandboxMock.launchSandboxRun).toHaveBeenCalled();
+    const persisted = runRepoMock.append.mock.calls[0]![0];
+    expect(persisted.kind).toBe('sandbox');
+    expect(persisted.status).toBe('running');
+    expect(persisted.model).toBeNull();
+    expect(runRepoMock.patchRun.mock.calls[0]![3]).toEqual({ taskArn: TASK_ARN });
+  });
+
+  it('rejects an overlapping run and refunds the reservation', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(sandboxAgent);
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    agentRepoMock.acquireActiveRun.mockRejectedValue(new AgentRunInProgressError(AGENT_ID));
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+
+    await expect(executeRun({ agentId: AGENT_ID })).rejects.toBeInstanceOf(AgentRunInProgressError);
+    expect(sandboxMock.launchSandboxRun).not.toHaveBeenCalled();
+    expect(runRepoMock.append).not.toHaveBeenCalled();
+    expect(agentRepoMock.finalizeSpend.mock.calls[0]![0].deltaUsd).toBeLessThan(0);
+  });
+
+  it('marks launch_failed, releases the slot, and refunds when RunTask throws', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(sandboxAgent);
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    agentRepoMock.acquireActiveRun.mockResolvedValue(undefined);
+    agentRepoMock.releaseActiveRun.mockResolvedValue(undefined);
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+    runRepoMock.append.mockResolvedValue(undefined);
+    runRepoMock.patchRun.mockResolvedValue(undefined);
+    sandboxMock.launchSandboxRun.mockRejectedValue(new Error('capacity'));
+
+    await expect(executeRun({ agentId: AGENT_ID })).rejects.toThrow('capacity');
+    expect(runRepoMock.patchRun.mock.calls.some((c) => c[3].status === 'launch_failed')).toBe(true);
+    expect(agentRepoMock.releaseActiveRun).toHaveBeenCalled();
+    expect(agentRepoMock.finalizeSpend.mock.calls[0]![0].deltaUsd).toBeLessThan(0);
+  });
+
+  it('records spend_limit_exceeded without acquiring the slot or launching', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(sandboxAgent);
+    agentRepoMock.reserveSpend.mockRejectedValue(
+      new SpendLimitExceededError({
+        agentId: AGENT_ID,
+        spendLimitUsd: 1,
+        spendUsedUsd: 1,
+        estimateUsd: 0.01,
+      }),
+    );
+    runRepoMock.append.mockResolvedValue(undefined);
+
+    const result = await executeRun({ agentId: AGENT_ID });
+
+    expect(result.status).toBe('spend_limit_exceeded');
+    expect(agentRepoMock.acquireActiveRun).not.toHaveBeenCalled();
+    expect(sandboxMock.launchSandboxRun).not.toHaveBeenCalled();
+    expect(runRepoMock.append.mock.calls[0]![0].kind).toBe('sandbox');
   });
 });
 
