@@ -134,12 +134,18 @@ export class RunnerStack extends Stack {
   }
 
   private grantSecretRead(fn: NodejsFunction, config: EnvConfig): void {
+    const prefix = `arn:aws:secretsmanager:${config.region}:*:secret:agent-village/${config.env}/agents`;
     fn.addToRolePolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
         actions: ['secretsmanager:GetSecretValue'],
+        // Per-agent secrets: the Anthropic key plus the tool-grant secrets
+        // (Notion token, GitHub PAT). Trailing `-*` matches the random ARN
+        // suffix Secrets Manager appends.
         resources: [
-          `arn:aws:secretsmanager:${config.region}:*:secret:agent-village/${config.env}/agents/*/anthropic-key-*`,
+          `${prefix}/*/anthropic-key-*`,
+          `${prefix}/*/notion-token-*`,
+          `${prefix}/*/github-pat-*`,
         ],
       }),
     );

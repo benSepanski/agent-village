@@ -1,3 +1,4 @@
+import type { ApplicationManifest } from '@agent-village/shared';
 import { client } from '../client.js';
 import { kv, statusColor, table } from '../format.js';
 
@@ -10,6 +11,7 @@ interface Agent {
   spendLimitUsd: number;
   spendUsedUsd: number;
   status: string;
+  manifest: ApplicationManifest | null;
   createdAt: string;
 }
 
@@ -19,6 +21,17 @@ interface Run {
   costUsd: number;
   durationMs: number;
   createdAt: string;
+}
+
+function manifestSummary(manifest: ApplicationManifest | null): string {
+  if (!manifest) return 'manifest: none';
+  const grants = manifest.grants.map((g) => g.kind).join(', ') || 'none';
+  return kv([
+    ['manifest.name', manifest.name],
+    ['manifest.image', manifest.image],
+    ['manifest.schedule', manifest.schedule ?? '—'],
+    ['manifest.grants', grants],
+  ]);
 }
 
 export async function agentsShow(agentId: string): Promise<string> {
@@ -46,5 +59,5 @@ export async function agentsShow(agentId: string): Promise<string> {
         r.createdAt,
       ]),
   );
-  return `${meta}\n\nrecent runs\n${runsTable}`;
+  return `${meta}\n\n${manifestSummary(agent.manifest)}\n\nrecent runs\n${runsTable}`;
 }

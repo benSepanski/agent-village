@@ -51,11 +51,15 @@ EventBridge Scheduler (per-agent cron)
 The runner is also invoked synchronously by `POST /agents/:id/run-now`
 from the API — same code path, just a different trigger.
 
-A second, containerized run path (Fargate sandbox + S3 workspaces)
-exists in infra but is not yet launched by the runner — see
+A second, containerized run path (Fargate sandbox + S3 workspaces) is
+live: when an agent has a `manifest`, the runner launches a per-run
+Fargate task instead of the inline Anthropic call, with a per-run egress
+proxy sidecar and tool-grant credentials injected at launch. An
+EventBridge "ECS Task State Change" rule drives a lifecycle Lambda that
+moves the run to a terminal status. See
 [sandbox-runs](sandbox-runs.md) for the architecture and
-[phase-2-sandbox-runs](../phases/phase-2-sandbox-runs.md) for what's
-wired so far.
+[phase-2-sandbox-runs](../phases/phase-2-sandbox-runs.md) for the step
+detail.
 
 ## Key invariants
 

@@ -30,6 +30,12 @@ export const LOG_EVENTS = [
   'sandbox.run.launched',
   'sandbox.run.launch_failed',
   'sandbox.run.finalized',
+  'sandbox.run.grants_injected',
+  'sandbox.run.grant_denied',
+  // Egress-proxy sidecar events (emitted by the per-run proxy container):
+  'sandbox.proxy.started',
+  'sandbox.egress.allowed',
+  'sandbox.egress.denied',
 ] as const;
 
 export type LogEvent = (typeof LOG_EVENTS)[number];

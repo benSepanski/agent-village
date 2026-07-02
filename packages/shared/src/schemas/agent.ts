@@ -47,6 +47,7 @@ export const CreateAgentInput = z.object({
   spendLimitUsd: z.number().positive(),
   anthropicApiKey: z.string().min(1),
   status: AgentStatus.optional(),
+  manifest: ApplicationManifest.nullable().optional(),
 });
 export type CreateAgentInput = z.infer<typeof CreateAgentInput>;
 
@@ -59,6 +60,7 @@ export const UpdateAgentInput = z
     spendLimitUsd: z.number().positive(),
     anthropicApiKey: z.string().min(1),
     status: AgentStatus,
+    manifest: ApplicationManifest.nullable(),
   })
   .partial();
 export type UpdateAgentInput = z.infer<typeof UpdateAgentInput>;

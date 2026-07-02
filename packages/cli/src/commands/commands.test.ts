@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { writeFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setApiClient, type ApiClient } from '../client.js';
 import { agentsList } from './agents-list.js';
+import { agentsManifest } from './agents-manifest.js';
 import { agentsShow } from './agents-show.js';
 import { logs } from './logs.js';
 import { run } from './run.js';
@@ -58,6 +62,7 @@ describe('agents show', () => {
           spendLimitUsd: 1,
           spendUsedUsd: 0,
           status: 'active',
+          manifest: null,
           createdAt: '2026-05-16T12:00:00.000Z',
         });
       }
@@ -136,6 +141,49 @@ describe('logs', () => {
     setApiClient(fakeClient({ get }));
     const out = await logs(AGENT_ID, RUN_ID);
     expect(out).toContain('boom');
+  });
+});
+
+describe('agents manifest', () => {
+  const manifest = {
+    name: 'summarizer',
+    image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+    schedule: null,
+    egressAllow: ['api.notion.com'],
+    grants: [],
+  };
+
+  it('attaches a manifest read from a JSON file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'av-cli-'));
+    const manifestPath = join(dir, 'manifest.json');
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    const patch = vi.fn().mockResolvedValue({ id: AGENT_ID, manifest });
+    setApiClient(fakeClient({ patch }));
+    const out = await agentsManifest(AGENT_ID, { manifestPath });
+    expect(patch).toHaveBeenCalledWith(
+      `/agents/${AGENT_ID}`,
+      expect.objectContaining({ manifest: expect.objectContaining({ name: 'summarizer' }) }),
+    );
+    expect(out).toContain('attached');
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('detaches a manifest with --detach', async () => {
+    const patch = vi.fn().mockResolvedValue({ id: AGENT_ID, manifest: null });
+    setApiClient(fakeClient({ patch }));
+    const out = await agentsManifest(AGENT_ID, { detach: true });
+    expect(patch).toHaveBeenCalledWith(`/agents/${AGENT_ID}`, { manifest: null });
+    expect(out).toContain('detached');
+  });
+
+  it('throws when neither a path nor --detach is provided', async () => {
+    await expect(agentsManifest(AGENT_ID)).rejects.toThrow();
+  });
+
+  it('rejects passing both a manifest path and --detach', async () => {
+    await expect(
+      agentsManifest(AGENT_ID, { manifestPath: '/tmp/manifest.json', detach: true }),
+    ).rejects.toThrow(/not both/);
   });
 });
 

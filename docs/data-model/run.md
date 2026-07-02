@@ -4,17 +4,22 @@ One row per agent execution (scheduled or manual). Append-only.
 
 ## Shape
 
-| pk                | sk                           | gsi1pk              | gsi1sk               | attrs                                                                                                                           |
-| ----------------- | ---------------------------- | ------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT#<agentId>` | `RUN#<isoTimestamp>#<runId>` | `USER#<cognitoSub>` | `RUN#<isoTimestamp>` | `status`, `costUsd`, `tokensIn`, `tokensOut`, `output`, `error`, `durationMs`, `traceId`, `model`, `systemPromptHash`, `dryRun` |
+| pk                | sk                           | gsi1pk              | gsi1sk               | attrs                                                                                                                                                          |
+| ----------------- | ---------------------------- | ------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT#<agentId>` | `RUN#<isoTimestamp>#<runId>` | `USER#<cognitoSub>` | `RUN#<isoTimestamp>` | `status`, `kind`, `costUsd`, `tokensIn`, `tokensOut`, `output`, `error`, `durationMs`, `traceId`, `model`, `systemPromptHash`, `dryRun`, `taskArn`, `exitCode` |
+
+`kind` is `inline` (Phase-1 Anthropic call) or `sandbox` (Phase-2 Fargate run). `taskArn` and `exitCode` are populated for `sandbox` runs; `model`/`systemPromptHash` for `inline` runs.
 
 ## `status` enum
 
-| Value                  | Meaning                                             |
-| ---------------------- | --------------------------------------------------- |
-| `ok`                   | Anthropic call succeeded; `output` populated        |
-| `error`                | Anthropic call or runtime failed; `error` populated |
-| `spend_limit_exceeded` | Pre-call reservation failed; no Anthropic call made |
+| Value                  | Meaning                                                                                 |
+| ---------------------- | --------------------------------------------------------------------------------------- |
+| `ok`                   | Run succeeded; `output` populated (inline) or the sandbox task exited 0                 |
+| `error`                | Anthropic call or the sandbox task failed; `error` populated                            |
+| `spend_limit_exceeded` | Pre-run reservation failed; no run started                                              |
+| `running`              | Sandbox task launched and in flight; moved to a terminal status by the lifecycle Lambda |
+| `launch_failed`        | Sandbox `RunTask` (or its setup) failed before the task started; reservation refunded   |
+| `timed_out`            | Sandbox task was stopped for exceeding `manifest.timeoutMinutes`                        |
 
 ## Access patterns
 

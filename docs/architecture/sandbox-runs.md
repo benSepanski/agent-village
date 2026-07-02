@@ -34,7 +34,7 @@ bucket owned by the `SandboxStack`:
 - A run in flight is the only writer to its prefix — the launcher enforces
   one concurrent run per agent.
 
-## Compute path (target state)
+## Compute path
 
 ```
 EventBridge Scheduler ──▶ Lambda(runner)
@@ -51,14 +51,41 @@ see [cost-guards](cost-guards.md)); everything is ~$0 with no run active.
 
 ## Access limiting (two layers)
 
-1. **Network:** the sandbox's only route out is the egress proxy, which
-   enforces the manifest's domain allowlist (`egressAllow`). CIDR security
-   groups can't track CDN-fronted APIs; domains can.
-2. **Credentials:** provider-native scoping per grant — Notion integration
-   tokens only see pages shared with them; SES sending is constrained by
-   `ses:Recipients` / `ses:FromAddress` IAM conditions; GitHub uses
-   fine-grained per-repo PATs. Injected per run, short-lived where the
-   provider allows. No MCP required: tools are CLIs and files.
+1. **Network:** each task runs a per-run **egress-proxy sidecar**
+   ([`packages/infra/proxy-image/`](../../packages/infra/proxy-image/), wired by
+   [`sandbox-egress.ts`](../../packages/services/src/sandbox-egress.ts) —
+   [ADR 0003](../adr/0003-egress-proxy-sidecar.md)). It installs iptables NAT
+   rules in the task's shared network namespace that transparently redirect the
+   app container's outbound TCP through the proxy, which peeks the TLS SNI / HTTP
+   Host and enforces the AWS base domains ∪ the manifest's `egressAllow`
+   (exact + leading-`*.` wildcard, case-insensitive). Enforcement is intra-task
+   iptables, not the security group; CIDR rules can't track CDN-fronted APIs,
+   hostnames can.
+2. **Credentials:** manifest `grants` are provisioned as per-agent secrets and
+   injected per run by the launcher
+   ([`sandbox-grants.ts`](../../packages/services/src/sandbox-grants.ts),
+   resolved in [`sandbox.ts`](../../packages/services/src/sandbox.ts)):
+   - **Notion / GitHub:** the token/PAT lives in a per-agent Secrets Manager
+     secret (`.../notion-token`, `.../github-pat` — created via
+     [`grants.ts`](../../packages/data/src/secrets/grants.ts)). Before fetch,
+     the grant's `secretName` is checked to sit under **this agent's** own
+     prefix (`assertGrantSecretOwned` in
+     [`domain/grants.ts`](../../packages/domain/src/grants.ts), a 400 on
+     violation) so a manifest cannot name another agent's secret. The token is
+     injected as `NOTION_TOKEN` / `GITHUB_TOKEN` (+ `GITHUB_REPOS`) on the app
+     container; provider-native scoping still applies (Notion only sees shared
+     pages, GitHub uses fine-grained per-repo PATs).
+   - **SES:** no secret — the app uses the injected STS creds. The per-run STS
+     session policy appends an `ses:SendEmail` / `ses:SendRawEmail` statement
+     conditioned on `ses:FromAddress = grant.fromAddress` and (ForAllValues)
+     `ses:Recipients` ⊆ `grant.allowedRecipients`, narrowing the task-role
+     ceiling. That ceiling (`ses:SendEmail` on the verified identity) only
+     exists when `config.sesSenderDomain` is set in the `SandboxStack`; unset,
+     `ses` grants are inert (send fails). Convenience env `AV_SES_FROM` /
+     `AV_SES_RECIPIENTS` is injected for the app.
+
+   Injected per run, short-lived where the provider allows. No MCP required:
+   tools are CLIs and files.
 
 Residual risk to check per manifest: an agent that reads untrusted input
 **and** holds any outbound grant can be steered by that input. The grants

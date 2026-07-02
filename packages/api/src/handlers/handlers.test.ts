@@ -125,6 +125,45 @@ describe('PATCH /agents/{id}', () => {
     expect(res).toMatchObject({ statusCode: 200 });
     expect(agentSvc.updateAgent).toHaveBeenCalled();
   });
+
+  it('parses a manifest body and forwards it to agent.updateAgent', async () => {
+    const manifest = {
+      name: 'summarizer',
+      image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+      schedule: null,
+      egressAllow: ['api.notion.com'],
+      grants: [],
+    };
+    agentSvc.updateAgent.mockResolvedValue({ id: AGENT_ID, manifest });
+    const res = await updateHandler(
+      evt({ pathParameters: { id: AGENT_ID }, body: JSON.stringify({ manifest }) }),
+    );
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(agentSvc.updateAgent).toHaveBeenCalledWith(
+      SUB,
+      AGENT_ID,
+      expect.objectContaining({ manifest: expect.objectContaining({ name: 'summarizer' }) }),
+    );
+  });
+
+  it('detaches a manifest with a null body', async () => {
+    agentSvc.updateAgent.mockResolvedValue({ id: AGENT_ID, manifest: null });
+    const res = await updateHandler(
+      evt({ pathParameters: { id: AGENT_ID }, body: JSON.stringify({ manifest: null }) }),
+    );
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(agentSvc.updateAgent).toHaveBeenCalledWith(SUB, AGENT_ID, { manifest: null });
+  });
+
+  it('returns 400 on a malformed manifest body', async () => {
+    const res = await updateHandler(
+      evt({
+        pathParameters: { id: AGENT_ID },
+        body: JSON.stringify({ manifest: { name: 'x' } }),
+      }),
+    );
+    expect(res).toMatchObject({ statusCode: 400 });
+  });
 });
 
 describe('DELETE /agents/{id}', () => {

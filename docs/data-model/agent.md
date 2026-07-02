@@ -4,22 +4,24 @@ One row per agent. Owned by exactly one User.
 
 ## Shape
 
-| pk                  | sk                | gsi1pk            | gsi1sk | attrs                                                                                                        |
-| ------------------- | ----------------- | ----------------- | ------ | ------------------------------------------------------------------------------------------------------------ |
-| `USER#<cognitoSub>` | `AGENT#<agentId>` | `AGENT#<agentId>` | `META` | `name`, `model`, `systemPrompt`, `schedule`, `spendLimitUsd`, `spendUsedUsd`, `anthropicSecretArn`, `status` |
+| pk                  | sk                | gsi1pk            | gsi1sk | attrs                                                                                                                                   |
+| ------------------- | ----------------- | ----------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `USER#<cognitoSub>` | `AGENT#<agentId>` | `AGENT#<agentId>` | `META` | `name`, `model`, `systemPrompt`, `schedule`, `spendLimitUsd`, `spendUsedUsd`, `anthropicSecretArn`, `status`, `manifest`, `activeRunId` |
 
 ## Attributes
 
-| Attribute            | Notes                                                                     |
-| -------------------- | ------------------------------------------------------------------------- |
-| `name`               | Display name, max 80 chars                                                |
-| `model`              | Anthropic model id (e.g. `claude-opus-4-7`)                               |
-| `systemPrompt`       | The agent's persistent system prompt                                      |
-| `schedule`           | 5-field cron (converted to EventBridge dialect) or `null` for manual-only |
-| `spendLimitUsd`      | Hard ceiling per `spendUsedUsd` accumulator                               |
-| `spendUsedUsd`       | Running total; never reset automatically                                  |
-| `anthropicSecretArn` | Secrets Manager ARN holding the API key (plaintext key never in DDB)      |
-| `status`             | `active` runs on schedule, `paused` skips                                 |
+| Attribute            | Notes                                                                                                                                                                                                                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`               | Display name, max 80 chars                                                                                                                                                                                                                                                                             |
+| `model`              | Anthropic model id (e.g. `claude-opus-4-7`)                                                                                                                                                                                                                                                            |
+| `systemPrompt`       | The agent's persistent system prompt                                                                                                                                                                                                                                                                   |
+| `schedule`           | 5-field cron (converted to EventBridge dialect) or `null` for manual-only                                                                                                                                                                                                                              |
+| `spendLimitUsd`      | Hard ceiling per `spendUsedUsd` accumulator                                                                                                                                                                                                                                                            |
+| `spendUsedUsd`       | Running total; never reset automatically                                                                                                                                                                                                                                                               |
+| `anthropicSecretArn` | Secrets Manager ARN holding the API key (plaintext key never in DDB)                                                                                                                                                                                                                                   |
+| `status`             | `active` runs on schedule, `paused` skips                                                                                                                                                                                                                                                              |
+| `manifest`           | `ApplicationManifest` or `null`. When set, a run launches a sandboxed Fargate task (Phase 2) instead of the inline Anthropic call. Holds the image, command, egress allowlist, and tool grants. Grant token _values_ live in Secrets Manager, not here — the manifest only carries their secret names. |
+| `activeRunId`        | In-flight sandbox run id, or `null`. Set/cleared by atomic conditional writes to enforce one concurrent run per agent (see [concurrent-state-access](../key-properties/concurrent-state-access.md)).                                                                                                   |
 
 ## Access patterns
 
@@ -33,5 +35,5 @@ One row per agent. Owned by exactly one User.
 ## Lifecycle
 
 - Created by `POST /agents` after writing the secret to Secrets Manager.
-- Updated via `PATCH /agents/:id`. Schedule changes call EventBridge Scheduler to upsert the per-agent schedule.
-- Deletion (`DELETE /agents/:id`) also deletes the schedule and the secret. Runs are kept (see [run-retention](run-retention.md)).
+- Updated via `PATCH /agents/:id`. Schedule changes call EventBridge Scheduler to upsert the per-agent schedule. A `manifest` field attaches (object), detaches (`null`), or is left untouched (absent) — see [phase-2-sandbox-runs](../phases/phase-2-sandbox-runs.md) step 09.
+- Deletion (`DELETE /agents/:id`) also deletes the schedule and the secret. Runs are kept (see [run-retention](run-retention.md)). Per-agent grant secrets (Notion/GitHub) live under the same `agent-village/<env>/agents/<agentId>/` prefix and are force-deleted on the same path as the Anthropic key.

@@ -55,14 +55,15 @@ in [observability](observability.md#metrics).
 
 ## What costs you might still see — and how to cut them
 
-| Source             | When it shows up                              | How to cap further                          |
-| ------------------ | --------------------------------------------- | ------------------------------------------- |
-| Anthropic          | Always — limited by per-agent `spendLimitUsd` | Lower the cap on each agent                 |
-| Lambda invocations | Per scheduled run + per API call              | Pause agents (`status=paused`)              |
-| DynamoDB           | Per request — typically pennies               | N/A at this scale                           |
-| CloudFront / S3    | Per page load                                 | N/A at this scale                           |
-| Secrets Manager    | $0.40/secret/month                            | One secret per agent — delete unused agents |
-| CloudWatch Logs    | Storage past retention                        | Lower `logRetentionDays` in env config      |
+| Source             | When it shows up                                                   | How to cap further                                                                   |
+| ------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| Anthropic          | Always — limited by per-agent `spendLimitUsd`                      | Lower the cap on each agent                                                          |
+| Lambda invocations | Per scheduled run + per API call                                   | Pause agents (`status=paused`)                                                       |
+| DynamoDB           | Per request — typically pennies                                    | N/A at this scale                                                                    |
+| CloudFront / S3    | Per page load                                                      | N/A at this scale                                                                    |
+| Secrets Manager    | $0.40/secret/month                                                 | One secret per agent (+ optional Notion/GitHub grant secrets) — delete unused agents |
+| SES                | Pay-per-use; only created when `sesSenderDomain` is set — ~$0 idle | Per-message send cost; unset `sesSenderDomain` to disable entirely                   |
+| CloudWatch Logs    | Storage past retention                                             | Lower `logRetentionDays` in env config                                               |
 
 ## "I forgot about a dev environment" recovery
 

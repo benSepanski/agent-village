@@ -20,6 +20,6 @@
 
 ## Known limits
 
-- **No per-agent run mutual exclusion on the inline path.** A scheduled fire and a "Run now" click can execute the same agent concurrently. Each run independently reserves spend, so the cap holds, but both calls happen. The one-run-per-agent guard is specified for the sandbox launcher (Phase 2 step 05, [phase-2-sandbox-runs](../phases/phase-2-sandbox-runs.md)) and the launcher does not exist yet.
+- **No per-agent run mutual exclusion on the inline path.** A scheduled fire and a "Run now" click can execute the same agent concurrently. Each run independently reserves spend, so the cap holds, but both calls happen. The **sandbox** path _does_ enforce one-run-per-agent via an atomic conditional write on the agent's `activeRunId` (Phase 2, [phase-2-sandbox-runs](../phases/phase-2-sandbox-runs.md)); the inline path is intentionally left without that guard because the spend cap already bounds it.
 - **No idempotency tokens on the API.** A retried `POST /agents/:id/run-now` produces two runs; a retried `POST /agents` produces two agents.
 - EventBridge Scheduler may retry a failed runner invocation; because the run ULID is minted inside the invocation, a retry is a _new_ run, not a duplicate write.

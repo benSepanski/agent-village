@@ -143,6 +143,10 @@ NagSuppressions.addStackSuppressions(runner, [
     appliesTo: [
       'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/dev/agents/*/anthropic-key-*',
       'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/prod/agents/*/anthropic-key-*',
+      'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/dev/agents/*/notion-token-*',
+      'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/prod/agents/*/notion-token-*',
+      'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/dev/agents/*/github-pat-*',
+      'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/prod/agents/*/github-pat-*',
       'Resource::<TableCD117FA1.Arn>/index/*',
       'Resource::arn:aws:ecs:us-east-1:*:task-definition/agent-village-dev-sandbox:*',
       'Resource::arn:aws:ecs:us-east-1:*:task-definition/agent-village-prod-sandbox:*',
@@ -168,12 +172,17 @@ NagSuppressions.addStackSuppressions(sandbox, [
   {
     id: 'AwsSolutions-ECS2',
     reason:
-      'The container environment variables are non-secret config only (env name, region, workspace bucket name). Secrets reach sandbox runs as short-lived STS/launcher-injected credentials, never as task-definition env vars.',
+      'Both containers (app + egress-proxy) carry non-secret config env only (env name, region, workspace bucket name; the per-run allowlist AV_EGRESS_ALLOW is a launcher container override, not a task-def env). Secrets reach sandbox runs as short-lived STS/launcher-injected credentials, never as task-definition env vars.',
+  },
+  {
+    id: 'AwsSolutions-VPC3',
+    reason:
+      'No Network ACL is attached: egress restriction is enforced intra-task by iptables in the egress-proxy sidecar (ADR 0003) which sees hostnames (SNI/Host), not by L3/L4 ACLs which cannot track CDN-fronted APIs.',
   },
   {
     id: 'AwsSolutions-IAM5',
     reason:
-      'The task role is intentionally scoped to the workspace bucket with object wildcards — it is the ceiling; each run is narrowed to its own user/agent prefix by an STS session policy from the launcher (phase 2). The S3 auto-delete handler is a CDK-internal custom resource.',
+      'The task role is intentionally scoped to the workspace bucket with object wildcards — it is the ceiling; each run is narrowed to its own user/agent prefix by an STS session policy from the launcher (phase 2). When sesSenderDomain is configured, ses:SendEmail is granted on the exact SES identity ARN (account wildcarded only so credential-free synth is deterministic); each run is further narrowed to a fromAddress + recipient allowlist by the STS session policy. The S3 auto-delete handler is a CDK-internal custom resource.',
   },
   {
     id: 'AwsSolutions-IAM4',
