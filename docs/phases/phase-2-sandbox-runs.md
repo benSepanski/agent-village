@@ -5,17 +5,17 @@ Goal: a containerized agent application runs on a schedule with a durable
 Architecture: [sandbox-runs](../architecture/sandbox-runs.md) ·
 [ADR 0002](../adr/0002-fargate-sandbox-runs.md).
 
-| Step | Deliverable                                                                                                                            | Status |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| 01   | `ApplicationManifest` + `workspacePrefix` schemas in shared                                                                            | ✅     |
-| 02   | Sandbox base image (workspace-sync entrypoint, tested against a stubbed AWS CLI)                                                       | ✅     |
-| 03   | `SandboxStack`: versioned workspace bucket, ECR repo, NAT-less VPC + Fargate task                                                      | ✅     |
-| 04   | Base-image build & push to ECR in the deploy workflow                                                                                  | ✅     |
-| 05   | Launcher: runner starts `RunTask` for manifest agents; per-run STS session policy scoped to `workspacePrefix`; one-run-per-agent guard | ✅     |
-| 06   | Run lifecycle for async runs: task state → Run record updates; `sandbox.run.*` events surfaced in the run viewer                       | ✅     |
-| 07   | Egress proxy (Fargate service) enforcing `egressAllow`; sandbox security group only reaches the proxy + DNS via the proxy              | ⬜     |
-| 08   | Tool grants: SES recipient-conditioned creds, per-agent Notion integration secrets, GitHub fine-grained PATs — injected per run        | ⬜     |
-| 09   | Manifest storage + API/UI: attach a manifest to an agent, show grants on the agent page                                                | ⬜     |
+| Step | Deliverable                                                                                                                                           | Status |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 01   | `ApplicationManifest` + `workspacePrefix` schemas in shared                                                                                           | ✅     |
+| 02   | Sandbox base image (workspace-sync entrypoint, tested against a stubbed AWS CLI)                                                                      | ✅     |
+| 03   | `SandboxStack`: versioned workspace bucket, ECR repo, NAT-less VPC + Fargate task                                                                     | ✅     |
+| 04   | Base-image build & push to ECR in the deploy workflow                                                                                                 | ✅     |
+| 05   | Launcher: runner starts `RunTask` for manifest agents; per-run STS session policy scoped to `workspacePrefix`; one-run-per-agent guard                | ✅     |
+| 06   | Run lifecycle for async runs: task state → Run record updates; `sandbox.run.*` events surfaced in the run viewer                                      | ✅     |
+| 07   | Egress proxy (per-run sidecar) enforcing `egressAllow` via in-task iptables + SNI/Host allowlist; see [ADR 0003](../adr/0003-egress-proxy-sidecar.md) | ✅     |
+| 08   | Tool grants: SES recipient-conditioned creds, per-agent Notion integration secrets, GitHub fine-grained PATs — injected per run                       | ✅     |
+| 09   | Manifest storage + API/UI: attach a manifest to an agent, show grants on the agent page                                                               | ✅     |
 
 ## Step notes
 
@@ -41,8 +41,36 @@ Architecture: [sandbox-runs](../architecture/sandbox-runs.md) ·
   `startedBy` and `agentId` into the task `group` (`av:<id>`); the lifecycle
   Lambda reads both back from the event, maps exit code / `stoppedReason` to a
   terminal status, patches the Run, and releases the `activeRunId` guard.
-- **07** — until this step lands, sandbox tasks have unrestricted egress;
-  do not attach grants to untrusted workloads before 07+08 are done.
+- **07** — the egress proxy is a **per-run sidecar** container in each sandbox
+  task, not an always-on Fargate service ([ADR 0003](../adr/0003-egress-proxy-sidecar.md)
+  supersedes ADR 0002's "proxy service" shape). This keeps the sandbox stack
+  ~$0 at idle and NAT-less. The `egress-proxy` container holds `NET_ADMIN` and
+  installs iptables NAT rules that transparently redirect the app container's
+  outbound TCP into a small Node transparent proxy
+  ([`proxy.mjs`](../../packages/infra/proxy-image/proxy.mjs)); the proxy peeks
+  TLS SNI / HTTP Host and allows only the run's allowlist —
+  AWS base domains (so `aws s3 sync` works) ∪ `manifest.egressAllow`
+  ([`sandbox-egress.ts`](../../packages/services/src/sandbox-egress.ts)).
+  Enforcement is intra-task iptables (containers in a Fargate task share one
+  network namespace), not the security group, since the SG can't distinguish
+  the two containers on the shared ENI.
+- **08** — grants are resolved and injected per run in
+  [`sandbox-grants.ts`](../../packages/services/src/sandbox-grants.ts). Notion /
+  GitHub tokens are per-agent Secrets Manager secrets
+  (`agent-village/<env>/agents/<agentId>/{notion-token,github-pat}`,
+  [`grants.ts`](../../packages/data/src/secrets/grants.ts)) fetched and injected
+  as env after an ownership check
+  ([`assertGrantSecretOwned`](../../packages/domain/src/grants.ts) rejects a
+  manifest naming another agent's/env's secret). SES sending is scoped by
+  narrowing the per-run STS session policy with `ses:FromAddress` +
+  `ForAllValues:StringLike ses:Recipients` conditions; the task-role SES ceiling
+  and `EmailIdentity` are created only when `config.sesSenderDomain` is set, so
+  SES grants are inert (send fails) in envs without a verified domain.
+- **09** — a manifest is attached/detached through `UpdateAgentInput.manifest`
+  (nullable: object attaches, `null` detaches, absent leaves untouched); storage
+  already existed on the Agent record. The web agent page shows the manifest and
+  its grants (read-only); the CLI adds `village agents manifest <id> [file]
+[--detach]`.
 - Steps 01–04 are deployed but inert: nothing launches the task definition
   until 05.
 

@@ -62,6 +62,17 @@ export class AgentRunInProgressError extends Error {
   }
 }
 
+export class GrantSecretOwnershipError extends Error {
+  readonly statusCode = 400;
+  readonly details: { agentId: string; secretName: string };
+
+  constructor(agentId: string, secretName: string) {
+    super(`grant secret "${secretName}" is not under agent ${agentId}'s own secret prefix`);
+    this.name = 'GrantSecretOwnershipError';
+    this.details = { agentId, secretName };
+  }
+}
+
 export class InvalidScheduleError extends Error {
   readonly statusCode = 400;
   readonly details: { schedule: string; reason?: string };

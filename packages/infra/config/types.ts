@@ -25,4 +25,12 @@ export interface EnvConfig {
   readonly alarmEmail: string;
   /** Optional custom domain for the SPA. */
   readonly webDomain?: string;
+  /**
+   * Verified SES sending domain/identity for agent `ses` grants. When set, the
+   * SandboxStack creates an SES EmailIdentity and grants the task role
+   * ses:SendEmail scoped to it (each run is then narrowed by an STS session
+   * policy). Leave unset to synth/deploy with NO SES resources — `ses` grants
+   * are inert in that env (send fails at runtime).
+   */
+  readonly sesSenderDomain?: string;
 }

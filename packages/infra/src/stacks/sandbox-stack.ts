@@ -6,18 +6,24 @@ import {
   ContainerImage,
   CpuArchitecture,
   FargateTaskDefinition,
+  type LogDriver,
   LogDrivers,
+  Capability,
+  LinuxParameters,
   OperatingSystemFamily,
 } from 'aws-cdk-lib/aws-ecs';
 import {
   AccountRootPrincipal,
   CompositePrincipal,
+  Effect,
   type IRole,
+  PolicyStatement,
   Role,
   ServicePrincipal,
 } from 'aws-cdk-lib/aws-iam';
 import { LogGroup } from 'aws-cdk-lib/aws-logs';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
+import { EmailIdentity, Identity } from 'aws-cdk-lib/aws-ses';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from '../../config/index.js';
 import { toRetention } from './log-retention.js';
@@ -36,13 +42,16 @@ const TASK_ROLE_SESSION_HOURS = 2;
 
 /**
  * Compute + storage for sandboxed application runs (ADR 0002): a versioned
- * S3 bucket holding per-(user, agent) workspaces, an ECR repo for the
- * sandbox base image, and a NAT-less VPC + Fargate cluster the launcher
- * starts per-run tasks in. Everything here is ~$0 when no run is active.
+ * S3 bucket holding per-(user, agent) workspaces, ECR repos for the sandbox
+ * base image and the egress-proxy sidecar image (ADR 0003), and a NAT-less
+ * VPC + Fargate cluster the launcher starts per-run tasks in. Each task runs
+ * two containers (app + egress-proxy). Everything here is ~$0 when no run is
+ * active.
  */
 export class SandboxStack extends Stack {
   public readonly workspaceBucket: Bucket;
   public readonly baseImageRepository: Repository;
+  public readonly proxyImageRepository: Repository;
   public readonly cluster: Cluster;
   public readonly taskDefinition: FargateTaskDefinition;
   public readonly taskRole: Role;
@@ -60,14 +69,17 @@ export class SandboxStack extends Stack {
     const { config } = props;
     this.workspaceBucket = this.buildWorkspaceBucket(config);
     this.baseImageRepository = this.buildImageRepository(config);
+    this.proxyImageRepository = this.buildProxyRepository(config);
 
     const vpc = this.buildVpc();
     this.subnetIds = vpc.publicSubnets.map((subnet) => subnet.subnetId);
     this.securityGroup = new SecurityGroup(this, 'SandboxSecurityGroup', {
       vpc,
+      // Enforcement is intra-task iptables in the egress-proxy sidecar (ADR
+      // 0003), not the SG; allowAllOutbound stays true so the proxy can reach
+      // allowlisted domains, AWS base endpoints, and DNS.
       allowAllOutbound: true,
-      description:
-        'Sandbox task egress (domain allowlisting via the egress proxy lands in step 07)',
+      description: 'Sandbox task egress; domain allowlisting enforced by the egress-proxy sidecar',
     });
     this.cluster = new Cluster(this, 'SandboxCluster', {
       vpc,
@@ -76,10 +88,16 @@ export class SandboxStack extends Stack {
     this.taskRole = this.buildTaskRole();
     this.taskDefinition = this.buildTaskDefinition(config);
     this.executionRole = this.taskDefinition.obtainExecutionRole();
+    this.emitOutputs();
+  }
 
+  private emitOutputs(): void {
     new CfnOutput(this, 'WorkspaceBucketName', { value: this.workspaceBucket.bucketName });
     new CfnOutput(this, 'BaseImageRepositoryUri', {
       value: this.baseImageRepository.repositoryUri,
+    });
+    new CfnOutput(this, 'ProxyImageRepositoryUri', {
+      value: this.proxyImageRepository.repositoryUri,
     });
     new CfnOutput(this, 'SandboxClusterArn', { value: this.cluster.clusterArn });
     new CfnOutput(this, 'SandboxTaskDefinitionArn', {
@@ -104,6 +122,19 @@ export class SandboxStack extends Stack {
   private buildImageRepository(config: EnvConfig): Repository {
     return new Repository(this, 'BaseImageRepository', {
       repositoryName: `${config.prefix}-sandbox-base`,
+      imageScanOnPush: true,
+      imageTagMutability: TagMutability.MUTABLE,
+      lifecycleRules: [{ maxImageCount: MAX_BASE_IMAGES }],
+      removalPolicy: config.retainOnDelete ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+      emptyOnDelete: !config.retainOnDelete,
+    });
+  }
+
+  private buildProxyRepository(config: EnvConfig): Repository {
+    // The egress-proxy sidecar image (ADR 0003). Resolved at RunTask time like
+    // the base image, so post-deploy push is fine.
+    return new Repository(this, 'ProxyImageRepository', {
+      repositoryName: `${config.prefix}-egress-proxy`,
       imageScanOnPush: true,
       imageTagMutability: TagMutability.MUTABLE,
       lifecycleRules: [{ maxImageCount: MAX_BASE_IMAGES }],
@@ -155,19 +186,72 @@ export class SandboxStack extends Stack {
         operatingSystemFamily: OperatingSystemFamily.LINUX,
       },
     });
+    const logging = LogDrivers.awsLogs({ logGroup, streamPrefix: 'sandbox' });
+    this.addAppContainer(taskDefinition, config, logging);
+    this.addProxyContainer(taskDefinition, config, logging);
+    // Task-role ceiling: bucket-wide read/write. The launcher narrows each run
+    // to its own workspacePrefix via an STS session policy.
+    this.workspaceBucket.grantReadWrite(this.taskRole);
+    this.grantSesSend(config);
+    return taskDefinition;
+  }
+
+  /**
+   * SES sending ceiling for agent `ses` grants — only when a verified sender
+   * domain is configured. Creates the EmailIdentity and adds ses:SendEmail /
+   * ses:SendRawEmail to the task role scoped to that identity. Each run is then
+   * narrowed by an STS session policy (fromAddress + recipients conditions) in
+   * the launcher. When `sesSenderDomain` is unset this is a no-op: no SES
+   * resources, no SES IAM, and `ses` grants are inert at send time.
+   */
+  private grantSesSend(config: EnvConfig): void {
+    if (!config.sesSenderDomain) return;
+    new EmailIdentity(this, 'SandboxSesIdentity', {
+      identity: Identity.domain(config.sesSenderDomain),
+    });
+    this.taskRole.addToPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+        resources: [`arn:aws:ses:${this.region}:*:identity/${config.sesSenderDomain}`],
+      }),
+    );
+  }
+
+  private addAppContainer(
+    taskDefinition: FargateTaskDefinition,
+    config: EnvConfig,
+    logging: LogDriver,
+  ): void {
     taskDefinition.addContainer('app', {
       containerName: 'app',
       image: ContainerImage.fromEcrRepository(this.baseImageRepository, 'latest'),
-      logging: LogDrivers.awsLogs({ logGroup, streamPrefix: 'sandbox' }),
+      logging,
       environment: {
         AV_ENV: config.env,
         AV_REGION: config.region,
         AV_WORKSPACE_BUCKET: this.workspaceBucket.bucketName,
       },
     });
-    // Task-role ceiling: bucket-wide read/write. The launcher narrows each run
-    // to its own workspacePrefix via an STS session policy.
-    this.workspaceBucket.grantReadWrite(this.taskRole);
-    return taskDefinition;
+  }
+
+  private addProxyContainer(
+    taskDefinition: FargateTaskDefinition,
+    config: EnvConfig,
+    logging: LogDriver,
+  ): void {
+    // Second container per task (ADR 0003): installs iptables NAT rules in the
+    // shared task network namespace, so it needs NET_ADMIN. The per-run
+    // allowlist arrives as an AV_EGRESS_ALLOW container override from the
+    // launcher; AV_REGION lets the proxy expand AWS base domains.
+    const linuxParameters = new LinuxParameters(this, 'ProxyLinuxParameters');
+    linuxParameters.addCapabilities(Capability.NET_ADMIN);
+    taskDefinition.addContainer('egress-proxy', {
+      containerName: 'egress-proxy',
+      image: ContainerImage.fromEcrRepository(this.proxyImageRepository, 'latest'),
+      logging,
+      linuxParameters,
+      environment: { AV_ENV: config.env, AV_REGION: config.region },
+    });
   }
 }

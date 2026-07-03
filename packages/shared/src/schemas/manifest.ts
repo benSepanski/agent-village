@@ -56,6 +56,12 @@ export const ApplicationManifest = z.object({
   image: z.string().min(1),
   /** Overrides the image CMD; the base-image entrypoint always wraps it. */
   command: z.array(z.string().min(1)).min(1).optional(),
+  /**
+   * App-declared cron, informational only. The runner schedule is driven by the
+   * agent's own top-level `schedule` (see services/agent.ts syncSchedule); this
+   * field is not automatically applied to EventBridge. Set the agent schedule
+   * separately to make a manifest agent run.
+   */
   schedule: z.string().min(1).nullable(),
   timeoutMinutes: z.number().int().min(1).max(TIMEOUT_MINUTES_MAX).default(DEFAULT_TIMEOUT_MINUTES),
   /** Domains the egress proxy lets the sandbox reach. Empty = no egress. */

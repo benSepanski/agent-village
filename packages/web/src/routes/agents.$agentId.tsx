@@ -8,6 +8,7 @@ import type {
   UpdateAgentInputType,
 } from '../api-client/types.js';
 import { AgentForm } from '../components/AgentForm.js';
+import { ManifestSection } from '../components/ManifestSection.js';
 import { PromptScratchpad } from '../components/PromptScratchpad.js';
 import { RunControls } from '../components/RunControls.js';
 import { RunHistoryTable } from '../components/RunHistoryTable.js';
@@ -68,6 +69,23 @@ function AgentActions({ agent }: { agent: Agent }) {
   );
 }
 
+function AgentOverview({ agent }: { agent: Agent }) {
+  return (
+    <>
+      <header style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+        <h2>{agent.name}</h2>
+        <StatusBadge status={agent.status} />
+      </header>
+      <p>
+        <SpendBar spendUsedUsd={agent.spendUsedUsd} spendLimitUsd={agent.spendLimitUsd} />
+      </p>
+      <AgentActions agent={agent} />
+      <h3>Application manifest</h3>
+      <ManifestSection agent={agent} />
+    </>
+  );
+}
+
 export function AgentDetailPage() {
   const { agentId } = useParams({ from: '/agents/$agentId' });
   const qc = useQueryClient();
@@ -87,14 +105,7 @@ export function AgentDetailPage() {
   if (error || !agent) return <p role="alert">Failed to load agent.</p>;
   return (
     <section>
-      <header style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-        <h2>{agent.name}</h2>
-        <StatusBadge status={agent.status} />
-      </header>
-      <p>
-        <SpendBar spendUsedUsd={agent.spendUsedUsd} spendLimitUsd={agent.spendLimitUsd} />
-      </p>
-      <AgentActions agent={agent} />
+      <AgentOverview agent={agent} />
       <RunNowSection agentId={agentId} />
       <h3>Recent runs</h3>
       <RunsSection agentId={agentId} />

@@ -140,6 +140,33 @@ describe('updateAgent', () => {
       AgentNotFoundError,
     );
   });
+
+  it('attaches a manifest', async () => {
+    const manifest = {
+      name: 'summarizer',
+      image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+      schedule: null,
+      timeoutMinutes: 30,
+      egressAllow: ['api.notion.com'],
+      grants: [],
+      flushIntervalSeconds: 300,
+    };
+    agentRepoMock.getAgent.mockResolvedValue(agentFixture);
+    agentRepoMock.updateAgent.mockResolvedValue({ ...agentFixture, manifest });
+    await updateAgent(SUB, AGENT_ID, { manifest });
+    expect(agentRepoMock.updateAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ patch: expect.objectContaining({ manifest }) }),
+    );
+  });
+
+  it('detaches a manifest by passing null', async () => {
+    agentRepoMock.getAgent.mockResolvedValue(agentFixture);
+    agentRepoMock.updateAgent.mockResolvedValue({ ...agentFixture, manifest: null });
+    await updateAgent(SUB, AGENT_ID, { manifest: null });
+    expect(agentRepoMock.updateAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ patch: expect.objectContaining({ manifest: null }) }),
+    );
+  });
 });
 
 describe('deleteAgent', () => {

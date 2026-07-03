@@ -87,6 +87,14 @@ describe('CreateAgentInput', () => {
 });
 
 describe('UpdateAgentInput', () => {
+  const validManifest = {
+    name: 'summarizer',
+    image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+    schedule: null,
+    egressAllow: ['api.notion.com'],
+    grants: [],
+  };
+
   it('accepts a partial update', () => {
     expect(UpdateAgentInput.parse({ name: 'New name' })).toEqual({ name: 'New name' });
   });
@@ -97,5 +105,53 @@ describe('UpdateAgentInput', () => {
 
   it('rejects an unknown model in a patch', () => {
     expect(() => UpdateAgentInput.parse({ model: 'gpt-4' })).toThrow();
+  });
+
+  it('accepts a manifest to attach', () => {
+    const parsed = UpdateAgentInput.parse({ manifest: validManifest });
+    expect(parsed.manifest?.name).toBe('summarizer');
+    expect(parsed.manifest?.image).toBe(validManifest.image);
+  });
+
+  it('accepts a null manifest to detach', () => {
+    expect(UpdateAgentInput.parse({ manifest: null })).toEqual({ manifest: null });
+  });
+
+  it('rejects a malformed manifest', () => {
+    expect(() => UpdateAgentInput.parse({ manifest: { ...validManifest, image: '' } })).toThrow();
+  });
+});
+
+describe('CreateAgentInput with manifest', () => {
+  const validCreate = {
+    name: 'My agent',
+    model: 'claude-opus-4-7',
+    systemPrompt: 'You are helpful.',
+    schedule: '*/5 * * * *',
+    spendLimitUsd: 1,
+    anthropicApiKey: 'sk-ant-secret',
+  };
+  const validManifest = {
+    name: 'summarizer',
+    image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+    schedule: null,
+    egressAllow: ['api.notion.com'],
+    grants: [],
+  };
+
+  it('accepts an optional manifest', () => {
+    const parsed = CreateAgentInput.parse({ ...validCreate, manifest: validManifest });
+    expect(parsed.manifest?.name).toBe('summarizer');
+  });
+
+  it('accepts a null manifest', () => {
+    const parsed = CreateAgentInput.parse({ ...validCreate, manifest: null });
+    expect(parsed.manifest).toBeNull();
+  });
+
+  it('rejects a malformed manifest', () => {
+    expect(() =>
+      CreateAgentInput.parse({ ...validCreate, manifest: { ...validManifest, image: '' } }),
+    ).toThrow();
   });
 });

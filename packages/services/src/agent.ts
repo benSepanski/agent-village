@@ -46,6 +46,7 @@ function buildAgent(args: BuildAgentArgs): Agent {
     spendUsedUsd: 0,
     anthropicSecretArn: args.secretArn,
     status: args.input.status ?? 'active',
+    manifest: args.input.manifest ?? null,
     createdAt: args.now,
     updatedAt: args.now,
   });
@@ -88,6 +89,7 @@ function buildPatch(
   if (input.schedule !== undefined) patch.schedule = validatedSchedule ?? null;
   if (input.spendLimitUsd !== undefined) patch.spendLimitUsd = input.spendLimitUsd;
   if (input.status !== undefined) patch.status = input.status;
+  if (input.manifest !== undefined) patch.manifest = input.manifest;
   return patch;
 }
 

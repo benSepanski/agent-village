@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { agentsList } from './commands/agents-list.js';
+import { agentsManifest } from './commands/agents-manifest.js';
 import { agentsShow } from './commands/agents-show.js';
 import { doctor } from './commands/doctor.js';
 import { logs } from './commands/logs.js';
@@ -22,6 +23,17 @@ export function buildCli(): Command {
     .action(async (agentId: string) => {
       process.stdout.write(`${await agentsShow(agentId)}\n`);
     });
+  agents
+    .command('manifest <agentId> [manifestPath]')
+    .description('Attach an application manifest from a JSON file, or --detach to remove it')
+    .option('--detach', 'Detach the current manifest (revert to inline agent)')
+    .action(
+      async (agentId: string, manifestPath: string | undefined, opts: { detach?: boolean }) => {
+        process.stdout.write(
+          `${await agentsManifest(agentId, { manifestPath, detach: opts.detach })}\n`,
+        );
+      },
+    );
 
   program
     .command('run <agentId>')
