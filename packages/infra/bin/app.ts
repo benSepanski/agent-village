@@ -173,7 +173,16 @@ NagSuppressions.addStackSuppressions(sandbox, [
   {
     id: 'AwsSolutions-IAM5',
     reason:
-      'The task role is intentionally scoped to the workspace bucket with object wildcards — it is the ceiling; each run is narrowed to its own user/agent prefix by an STS session policy from the launcher (phase 2). The S3 auto-delete handler is a CDK-internal custom resource.',
+      'Task-role ceiling: grantReadWrite emits the S3 action wildcards and the workspace-bucket object-key wildcard (Resource::<bucket>/*) — this is the intended ceiling; each run is narrowed to its own user/agent prefix by an STS session policy from the launcher (phase 2). The Resource::* is ecr:GetAuthorizationToken on the ECS task execution role, which AWS does not allow to be resource-scoped.',
+    appliesTo: [
+      'Action::s3:GetObject*',
+      'Action::s3:GetBucket*',
+      'Action::s3:List*',
+      'Action::s3:DeleteObject*',
+      'Action::s3:Abort*',
+      'Resource::<WorkspaceBucket53E30B92.Arn>/*',
+      'Resource::*',
+    ],
   },
   {
     id: 'AwsSolutions-IAM4',
@@ -219,7 +228,17 @@ NagSuppressions.addStackSuppressions(web, [
   {
     id: 'AwsSolutions-IAM5',
     reason:
-      'CDK BucketDeployment helper Lambda uses wildcard S3 permissions on the staging bucket and the destination bucket. CDK-internal helper; we cannot narrow these from outside the construct.',
+      'CDK BucketDeployment helper Lambda: grantRead on the CDK assets/staging bucket and grantReadWrite on the destination web bucket emit the S3 action wildcards plus the two object-key wildcards (staging <bucket>/* and WebBucket <bucket>/*). The Resource::* is cloudfront:GetInvalidation/CreateInvalidation (CloudFront invalidation has no resource-level permissions), added because the deployment invalidates the distribution. CDK-internal helper; none of these can be narrowed from outside the construct.',
+    appliesTo: [
+      'Action::s3:GetObject*',
+      'Action::s3:GetBucket*',
+      'Action::s3:List*',
+      'Action::s3:DeleteObject*',
+      'Action::s3:Abort*',
+      'Resource::<WebBucket12880F5B.Arn>/*',
+      'Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-us-east-1/*',
+      'Resource::*',
+    ],
   },
   {
     id: 'AwsSolutions-L1',
