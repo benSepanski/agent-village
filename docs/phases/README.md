@@ -1,11 +1,12 @@
 # Phases
 
-| Phase                        | Status    | Goal                                                                          |
-| ---------------------------- | --------- | ----------------------------------------------------------------------------- |
-| [0](phase-0-harness.md)      | ✅ done   | Harness only — no product code. Lint, layers, tests, CI/CD, docs, CDK stacks. |
-| [1](phase-1-mvp.md)          | ✅ done   | MVP — auth + Agent CRUD + scheduled Anthropic call + Run viewer.              |
-| [2](phase-2-sandbox-runs.md) | ✅ done   | Sandboxed application runs — Fargate + S3 workspaces + egress + grants.       |
-| [3+](phase-2-plus.md)        | 📋 sketch | Notifications, more tools, multi-user, audit summarizer.                      |
+| Phase                                | Status     | Goal                                                                               |
+| ------------------------------------ | ---------- | ---------------------------------------------------------------------------------- |
+| [0](phase-0-harness.md)              | ✅ done    | Harness only — no product code. Lint, layers, tests, CI/CD, docs, CDK stacks.      |
+| [1](phase-1-mvp.md)                  | ✅ done    | MVP — auth + Agent CRUD + scheduled Anthropic call + Run viewer.                   |
+| [2](phase-2-sandbox-runs.md)         | ✅ done    | Sandboxed application runs — Fargate + S3 workspaces + egress + grants.            |
+| [3](phase-3-application-platform.md) | 📋 planned | One-off apps, safely — metered LLM spend, kill switch, proxy ports, secret grants. |
+| [4+](phase-2-plus.md)                | 📋 sketch  | Notifications, more tools, multi-user, audit summarizer.                           |
 
 ## Working on a phase
 
