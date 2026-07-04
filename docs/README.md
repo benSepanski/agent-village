@@ -86,5 +86,6 @@ Each link below answers one question in one screen. Pattern-match against the qu
 
 - [What Phase 0 delivered](phases/phase-0-harness.md) — the harness already in place.
 - [Phase 1 — MVP](phases/phase-1-mvp.md) — delivered; the spec plus known deviations as shipped.
-- [Phase 2 — sandboxed application runs](phases/phase-2-sandbox-runs.md) — active; the step table shows what's landed.
-- [Phase 3+ roadmap](phases/phase-2-plus.md) — sketched, not detailed.
+- [Phase 2 — sandboxed application runs](phases/phase-2-sandbox-runs.md) — done; the step table shows what landed.
+- [Phase 3 — one-off applications, safely](phases/phase-3-application-platform.md) — planned; the next phase.
+- [Phase 4+ roadmap](phases/phase-2-plus.md) — sketched, not detailed.
