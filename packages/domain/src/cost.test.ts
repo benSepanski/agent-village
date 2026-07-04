@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { actualCost, estimateCost, estimateSandboxCost, pricingFor } from './cost.js';
+import {
+  actualCost,
+  estimateCost,
+  estimateGatewayCall,
+  estimateSandboxCost,
+  pricingFor,
+} from './cost.js';
 
 describe('estimateCost', () => {
   it('uses output pricing for the given model and max-tokens cap', () => {
@@ -43,6 +49,26 @@ describe('estimateSandboxCost', () => {
 
   it('is more expensive for a larger task', () => {
     expect(estimateSandboxCost(30, 512, 1024)).toBeGreaterThan(estimateSandboxCost(30, 256, 512));
+  });
+});
+
+describe('estimateGatewayCall', () => {
+  it('prices max output tokens plus chars/4 approximated input tokens', () => {
+    // Sonnet: 4000 chars -> 1000 input tokens @ $3/Mtok = 0.003;
+    // 500 max output tokens @ $15/Mtok = 0.0075.
+    expect(estimateGatewayCall('claude-sonnet-4-6', 500, 4000)).toBeCloseTo(0.0105, 6);
+  });
+
+  it('rounds partial input tokens up', () => {
+    // 1 char still reserves one input token.
+    const oneChar = estimateGatewayCall('claude-sonnet-4-6', 0, 1);
+    expect(oneChar).toBeCloseTo(3 / 1_000_000, 12);
+  });
+
+  it('costs at least the pure-output estimate for the same cap', () => {
+    expect(estimateGatewayCall('claude-opus-4-7', 1000, 4000)).toBeGreaterThan(
+      estimateCost('claude-opus-4-7', 1000),
+    );
   });
 });
 

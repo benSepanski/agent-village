@@ -16,9 +16,9 @@ The step list is the Phase-2 audit's platform gaps, ordered safety-first:
 
 | Step | Deliverable                                                                                                                                                  | Status |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
-| 01   | Run-duration kill switch: `ecs:StopTask` watchdog at `manifest.timeoutMinutes` + `timeout` SIGKILL fallback in the entrypoint                                | 📋     |
-| 02   | ADR: metered Anthropic access for sandbox apps (platform-held key behind an `ANTHROPIC_BASE_URL` gateway vs. key injection + provider-side cap)              | 📋     |
-| 03   | Metered Anthropic access implemented per the ADR: per-call reserve/reconcile against `spendLimitUsd`, mid-run hard stop when exhausted                       | 📋     |
+| 01   | Run-duration kill switch: `ecs:StopTask` watchdog at `manifest.timeoutMinutes` + `timeout` SIGKILL fallback in the entrypoint                                | ✅     |
+| 02   | ADR: metered Anthropic access for sandbox apps (platform-held key behind an `ANTHROPIC_BASE_URL` gateway vs. key injection + provider-side cap)              | ✅     |
+| 03   | Metered Anthropic access implemented per the ADR: per-call reserve/reconcile against `spendLimitUsd`, mid-run hard stop when exhausted                       | ✅     |
 | 04   | Egress proxy port preservation (`SO_ORIGINAL_DST`): allowed hosts reachable on their real ports, enabling IMAPS:993 / SMTPS:465 / SMTP:587                   | 📋     |
 | 05   | Generic `secret` tool grant: per-agent named secrets injected as env, ownership-checked like Notion/GitHub grants                                            | 📋     |
 | 06   | Honest cost: reconcile sandbox Fargate spend to actual duration; month-to-date spend per agent in UI/CLI                                                     | 📋     |

@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { agentRepoMock, runRepoMock } = vi.hoisted(() => ({
+const { agentRepoMock, runRepoMock, watchdogMock } = vi.hoisted(() => ({
   agentRepoMock: { releaseActiveRun: vi.fn() },
   runRepoMock: { getOne: vi.fn(), patchRun: vi.fn() },
+  watchdogMock: { deleteRunWatchdog: vi.fn() },
 }));
 
 vi.mock('@agent-village/data', () => ({
@@ -11,6 +12,8 @@ vi.mock('@agent-village/data', () => ({
   secrets: {},
   userRepo: {},
 }));
+
+vi.mock('./sandbox-watchdog.js', () => watchdogMock);
 
 import { finalizeSandboxRun } from './sandbox-lifecycle.js';
 
@@ -29,6 +32,7 @@ beforeEach(() => {
   agentRepoMock.releaseActiveRun.mockReset().mockResolvedValue(undefined);
   runRepoMock.getOne.mockReset().mockResolvedValue(existing);
   runRepoMock.patchRun.mockReset().mockResolvedValue(undefined);
+  watchdogMock.deleteRunWatchdog.mockReset().mockResolvedValue(undefined);
 });
 
 describe('finalizeSandboxRun', () => {
@@ -64,10 +68,37 @@ describe('finalizeSandboxRun', () => {
     expect(agentRepoMock.releaseActiveRun).toHaveBeenCalled();
   });
 
-  it('is a no-op when the run cannot be found', async () => {
+  it('maps the in-container timeout exit code (124) to timed_out', async () => {
+    await finalizeSandboxRun({
+      agentId: AGENT_ID,
+      runId: RUN_ID,
+      exitCode: 124,
+      stoppedReason: 'Essential container in task exited',
+      durationMs: 100,
+    });
+    expect(runRepoMock.patchRun.mock.calls[0]![3]).toMatchObject({ status: 'timed_out' });
+  });
+
+  it('preserves a mid-run spend_limit_exceeded status (and its error) set by the gateway', async () => {
+    runRepoMock.getOne.mockResolvedValue({ ...existing, status: 'spend_limit_exceeded' });
+    await finalizeSandboxRun({ agentId: AGENT_ID, runId: RUN_ID, exitCode: 1, durationMs: 900 });
+    const patch = runRepoMock.patchRun.mock.calls[0]![3];
+    expect(patch.status).toBe('spend_limit_exceeded');
+    expect(patch).not.toHaveProperty('error');
+    expect(patch).toMatchObject({ durationMs: 900, exitCode: 1 });
+    expect(agentRepoMock.releaseActiveRun).toHaveBeenCalled();
+  });
+
+  it('deletes the run watchdog schedule when the task stops', async () => {
+    await finalizeSandboxRun({ agentId: AGENT_ID, runId: RUN_ID, exitCode: 0, durationMs: 5000 });
+    expect(watchdogMock.deleteRunWatchdog).toHaveBeenCalledWith(RUN_ID);
+  });
+
+  it('is a no-op (except watchdog cleanup) when the run cannot be found', async () => {
     runRepoMock.getOne.mockResolvedValue(null);
     await finalizeSandboxRun({ agentId: AGENT_ID, runId: RUN_ID, exitCode: 0, durationMs: 1 });
     expect(runRepoMock.patchRun).not.toHaveBeenCalled();
     expect(agentRepoMock.releaseActiveRun).not.toHaveBeenCalled();
+    expect(watchdogMock.deleteRunWatchdog).toHaveBeenCalledWith(RUN_ID);
   });
 });

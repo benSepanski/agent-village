@@ -12,6 +12,7 @@ import {
   type RunId,
   type RunStatus,
 } from '@agent-village/shared';
+import { mintRunToken } from './gateway-token.js';
 import { launchSandboxRun } from './sandbox.js';
 import { logger } from './logger.js';
 
@@ -47,7 +48,7 @@ function buildSandboxRun(
   ctx: SandboxRunContext,
   agent: Agent,
   costUsd: number,
-  taskArn: string | null,
+  gatewayTokenHash: string,
 ): Run {
   return RunSchema.parse({
     id: ctx.runId,
@@ -63,8 +64,9 @@ function buildSandboxRun(
     model: null,
     systemPromptHash: null,
     dryRun: false,
-    taskArn,
+    taskArn: null,
     exitCode: null,
+    gatewayTokenHash,
     createdAt: new Date(ctx.startedAt).toISOString(),
   });
 }
@@ -168,11 +170,19 @@ async function launchAndRecord(
 ): Promise<SandboxRunResult> {
   const manifest = agent.manifest;
   if (!manifest) throw new Error('launchAndRecord requires a manifest');
-  const run = buildSandboxRun(ctx, agent, estimateUsd, null);
+  // Metered LLM access (ADR 0004): the run record keeps only the token's hash;
+  // the full token travels to the task env via the launcher.
+  const minted = mintRunToken(agent.id, ctx.runId);
+  const run = buildSandboxRun(ctx, agent, estimateUsd, minted.tokenHash);
   await runRepo.append(run);
   logger.info({ event: 'agent.run.persisted', ...runLog(ctx) });
   try {
-    const taskArn = await launchSandboxRun({ agent, manifest, runId: ctx.runId });
+    const taskArn = await launchSandboxRun({
+      agent,
+      manifest,
+      runId: ctx.runId,
+      gatewayToken: minted.token,
+    });
     await runRepo.patchRun(agent.id, run.createdAt, ctx.runId, { taskArn });
     return { runId: ctx.runId, status: 'running' };
   } catch (err) {

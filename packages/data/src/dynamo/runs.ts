@@ -121,6 +121,44 @@ export async function patchRun(
   }
 }
 
+export interface RunUsageDelta {
+  costUsd: number;
+  tokensIn: number;
+  tokensOut: number;
+}
+
+/**
+ * Atomically accumulate one LLM call's usage onto a run record. Used by the
+ * Anthropic metering gateway (ADR 0004): a sandbox run makes many calls, so
+ * this is an `ADD`, never a `SET` — concurrent calls cannot clobber each other.
+ */
+export async function addRunUsage(
+  agentId: AgentId,
+  createdAt: string,
+  runId: RunId,
+  delta: RunUsageDelta,
+): Promise<void> {
+  const { tableName } = getConfig();
+  try {
+    await getDocumentClient().send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: { pk: agentPk(agentId), sk: runSk(createdAt, runId) },
+        UpdateExpression: 'ADD costUsd :cost, tokensIn :tokensIn, tokensOut :tokensOut',
+        ConditionExpression: 'attribute_exists(pk)',
+        ExpressionAttributeValues: {
+          ':cost': delta.costUsd,
+          ':tokensIn': delta.tokensIn,
+          ':tokensOut': delta.tokensOut,
+        },
+      }),
+    );
+  } catch (err) {
+    if (isConditionalCheckFailed(err)) throw new RunNotFoundError(agentId, runId);
+    throw err;
+  }
+}
+
 export async function getOne(agentId: AgentId, runId: RunId): Promise<Run | null> {
   const { tableName } = getConfig();
   const client = getDocumentClient();

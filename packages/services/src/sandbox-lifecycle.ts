@@ -1,6 +1,7 @@
 import { agentRepo, runRepo } from '@agent-village/data';
 import type { AgentId, RunId, RunStatus } from '@agent-village/shared';
 import { logger } from './logger.js';
+import { deleteRunWatchdog } from './sandbox-watchdog.js';
 
 export interface FinalizeSandboxRunInput {
   agentId: AgentId;
@@ -13,6 +14,8 @@ export interface FinalizeSandboxRunInput {
 }
 
 const TIMEOUT_MARKERS = ['timeout', 'timed out'];
+/** GNU `timeout` exit status when the in-container fallback killed the app. */
+const TIMEOUT_FALLBACK_EXIT_CODE = 124;
 
 function isTimeout(reason: string): boolean {
   const lower = reason.toLowerCase();
@@ -20,7 +23,7 @@ function isTimeout(reason: string): boolean {
 }
 
 function terminalStatus(exitCode: number | null, stoppedReason: string): RunStatus {
-  if (isTimeout(stoppedReason)) return 'timed_out';
+  if (isTimeout(stoppedReason) || exitCode === TIMEOUT_FALLBACK_EXIT_CODE) return 'timed_out';
   return exitCode === 0 ? 'ok' : 'error';
 }
 
@@ -32,6 +35,9 @@ function terminalStatus(exitCode: number | null, stoppedReason: string): RunStat
  * task predates this code) is a no-op.
  */
 export async function finalizeSandboxRun(input: FinalizeSandboxRunInput): Promise<void> {
+  // The task has stopped, so the kill-switch schedule is moot regardless of
+  // whether the run record exists — disarm it first (best effort, never throws).
+  await deleteRunWatchdog(input.runId);
   const existing = await runRepo.getOne(input.agentId, input.runId);
   if (!existing) {
     logger.warn({
@@ -43,12 +49,17 @@ export async function finalizeSandboxRun(input: FinalizeSandboxRunInput): Promis
     return;
   }
   const reason = input.stoppedReason ?? '';
-  const status = terminalStatus(input.exitCode, reason);
+  // A mid-run spend breach recorded by the metering gateway (ADR 0004) is the
+  // most meaningful outcome — keep it (and its error) over the exit-code status.
+  const breached = existing.status === 'spend_limit_exceeded';
+  const status = breached ? existing.status : terminalStatus(input.exitCode, reason);
   await runRepo.patchRun(input.agentId, existing.createdAt, input.runId, {
     status,
     durationMs: input.durationMs,
     exitCode: input.exitCode,
-    error: status === 'ok' ? null : reason || `exit code ${input.exitCode}`,
+    ...(breached
+      ? {}
+      : { error: status === 'ok' ? null : reason || `exit code ${input.exitCode}` }),
   });
   await agentRepo.releaseActiveRun({
     agentId: input.agentId,

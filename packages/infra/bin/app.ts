@@ -139,7 +139,7 @@ NagSuppressions.addStackSuppressions(runner, [
   {
     id: 'AwsSolutions-IAM5',
     reason:
-      'Per-agent secret ARNs are dynamic; DDB GSI access requires /index/* on the table ARN; scheduler invoke role is scoped to the runner Lambda only. ecs:RunTask is scoped to the single sandbox task-definition family (revision wildcard is required — RunTask cannot target a fixed revision sanely); account is wildcarded only so the suppression is deterministic during credential-free synth.',
+      'Per-agent secret ARNs are dynamic; DDB GSI access requires /index/* on the table ARN; scheduler invoke role is scoped to the runner Lambda only. ecs:RunTask is scoped to the single sandbox task-definition family (revision wildcard is required — RunTask cannot target a fixed revision sanely); ecs:StopTask and the per-run watchdog schedules are per-run resources with dynamic ids, so the sandbox cluster / watchdog group is the narrowest scope; account is wildcarded only so the suppression is deterministic during credential-free synth.',
     appliesTo: [
       'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/dev/agents/*/anthropic-key-*',
       'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/prod/agents/*/anthropic-key-*',
@@ -150,6 +150,10 @@ NagSuppressions.addStackSuppressions(runner, [
       'Resource::<TableCD117FA1.Arn>/index/*',
       'Resource::arn:aws:ecs:us-east-1:*:task-definition/agent-village-dev-sandbox:*',
       'Resource::arn:aws:ecs:us-east-1:*:task-definition/agent-village-prod-sandbox:*',
+      'Resource::arn:aws:ecs:us-east-1:*:task/agent-village-dev-sandbox/*',
+      'Resource::arn:aws:ecs:us-east-1:*:task/agent-village-prod-sandbox/*',
+      'Resource::arn:aws:scheduler:us-east-1:*:schedule/agent-village-dev-run-watchdogs/*',
+      'Resource::arn:aws:scheduler:us-east-1:*:schedule/agent-village-prod-run-watchdogs/*',
     ],
   },
 ]);

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RunTaskCommand } from '@aws-sdk/client-ecs';
+import { RunTaskCommand, StopTaskCommand } from '@aws-sdk/client-ecs';
+import { CreateScheduleCommand } from '@aws-sdk/client-scheduler';
 import { AssumeRoleCommand } from '@aws-sdk/client-sts';
 import type { Agent, ApplicationManifest } from '@agent-village/shared';
 
@@ -10,6 +11,7 @@ const { grantSecretsMock } = vi.hoisted(() => ({
 vi.mock('@agent-village/data', () => ({ grantSecrets: grantSecretsMock }));
 
 import { launchSandboxRun, setEcsClient, setStsClient } from './sandbox.js';
+import { resetSchedulerClient, setSchedulerClient } from './scheduling.js';
 
 const AGENT_ID = '01HZ1234567890ABCDEFGHJKMN';
 const RUN_ID = '01HZN0PQRSTVWXYZ0123456789';
@@ -32,6 +34,9 @@ const manifest: ApplicationManifest = {
 
 const ecsSend = vi.fn();
 const stsSend = vi.fn();
+const schedulerSend = vi.fn();
+
+const GATEWAY_TOKEN = `avgw1.${AGENT_ID}.${RUN_ID}.deadbeef`;
 
 const SANDBOX_ENV = {
   AV_SANDBOX_CLUSTER_ARN: 'arn:aws:ecs:us-east-1:0:cluster/agent-village-dev-sandbox',
@@ -42,14 +47,19 @@ const SANDBOX_ENV = {
   AV_WORKSPACE_BUCKET: 'workspace-bucket',
   AV_REGION: 'us-east-1',
   AV_ENV: 'dev',
+  AV_WATCHDOG_GROUP: 'agent-village-dev-run-watchdogs',
+  AV_WATCHDOG_ROLE_ARN: 'arn:aws:iam::0:role/agent-village-dev-run-watchdog',
+  AV_GATEWAY_URL: 'https://gw123.lambda-url.us-east-1.on.aws/',
 };
 
 beforeEach(() => {
   Object.assign(process.env, SANDBOX_ENV);
   setEcsClient({ send: ecsSend } as never);
   setStsClient({ send: stsSend } as never);
+  setSchedulerClient({ send: schedulerSend } as never);
   ecsSend.mockReset();
   stsSend.mockReset();
+  schedulerSend.mockReset().mockResolvedValue({});
   grantSecretsMock.getNotionToken.mockReset();
   grantSecretsMock.getGithubPat.mockReset();
   grantSecretsMock.getNotionToken.mockResolvedValue('ntn-token');
@@ -63,12 +73,13 @@ beforeEach(() => {
 afterEach(() => {
   setEcsClient(undefined);
   setStsClient(undefined);
+  resetSchedulerClient();
   for (const key of Object.keys(SANDBOX_ENV)) delete process.env[key];
 });
 
 describe('launchSandboxRun', () => {
   it('assumes the task role with a prefix-scoped, duration-clamped session policy', async () => {
-    await launchSandboxRun({ agent, manifest, runId: RUN_ID });
+    await launchSandboxRun({ agent, manifest, runId: RUN_ID, gatewayToken: GATEWAY_TOKEN });
     const cmd = stsSend.mock.calls[0]![0] as AssumeRoleCommand;
     expect(cmd).toBeInstanceOf(AssumeRoleCommand);
     expect(cmd.input.RoleArn).toBe(SANDBOX_ENV.AV_SANDBOX_TASK_ROLE_ARN);
@@ -79,7 +90,12 @@ describe('launchSandboxRun', () => {
   });
 
   it('runs the task with startedBy=runId, group carrying the agent id, and workspace env', async () => {
-    const taskArn = await launchSandboxRun({ agent, manifest, runId: RUN_ID });
+    const taskArn = await launchSandboxRun({
+      agent,
+      manifest,
+      runId: RUN_ID,
+      gatewayToken: GATEWAY_TOKEN,
+    });
     expect(taskArn).toBe('arn:aws:ecs:us-east-1:0:task/abc');
     const cmd = ecsSend.mock.calls[0]![0] as RunTaskCommand;
     expect(cmd).toBeInstanceOf(RunTaskCommand);
@@ -97,6 +113,31 @@ describe('launchSandboxRun', () => {
     expect(env['AV_WORKSPACE_URI']).toBe(`s3://workspace-bucket/${SUB}/${AGENT_ID}/`);
     expect(env['AV_FLUSH_SECONDS']).toBe('120');
     expect(env['AWS_SESSION_TOKEN']).toBe('ST');
+    // In-container kill-switch fallback: manifest.timeoutMinutes in seconds.
+    expect(env['AV_TIMEOUT_SECONDS']).toBe('1800');
+  });
+
+  it('arms the StopTask watchdog schedule for the launched task', async () => {
+    await launchSandboxRun({ agent, manifest, runId: RUN_ID, gatewayToken: GATEWAY_TOKEN });
+    const cmd = schedulerSend.mock.calls[0]![0] as CreateScheduleCommand;
+    expect(cmd).toBeInstanceOf(CreateScheduleCommand);
+    expect(cmd.input.Name).toBe(`run-watchdog-${RUN_ID}`);
+    expect(cmd.input.GroupName).toBe(SANDBOX_ENV.AV_WATCHDOG_GROUP);
+    const target = JSON.parse(cmd.input.Target?.Input ?? '{}') as Record<string, string>;
+    expect(target['cluster']).toBe(SANDBOX_ENV.AV_SANDBOX_CLUSTER_ARN);
+    expect(target['task']).toBe('arn:aws:ecs:us-east-1:0:task/abc');
+  });
+
+  it('stops the task and rejects when the watchdog cannot be armed', async () => {
+    schedulerSend.mockRejectedValue(new Error('scheduler down'));
+    await expect(
+      launchSandboxRun({ agent, manifest, runId: RUN_ID, gatewayToken: GATEWAY_TOKEN }),
+    ).rejects.toThrow('scheduler down');
+    const stop = ecsSend.mock.calls
+      .map((call) => call[0] as unknown)
+      .find((command): command is StopTaskCommand => command instanceof StopTaskCommand);
+    expect(stop).toBeDefined();
+    expect(stop?.input.task).toBe('arn:aws:ecs:us-east-1:0:task/abc');
   });
 
   it('adds an egress-proxy override with the AWS-base ∪ manifest allowlist', async () => {
@@ -104,6 +145,7 @@ describe('launchSandboxRun', () => {
       agent,
       manifest: { ...manifest, egressAllow: ['api.notion.com', '*.githubusercontent.com'] },
       runId: RUN_ID,
+      gatewayToken: GATEWAY_TOKEN,
     });
     const cmd = ecsSend.mock.calls[0]![0] as RunTaskCommand;
     const overrides = cmd.input.overrides?.containerOverrides ?? [];
@@ -119,8 +161,26 @@ describe('launchSandboxRun', () => {
     expect(domains).toContain('*.githubusercontent.com');
   });
 
+  it('points the SDK at the metering gateway with the per-run token, never a real key', async () => {
+    await launchSandboxRun({ agent, manifest, runId: RUN_ID, gatewayToken: GATEWAY_TOKEN });
+    const cmd = ecsSend.mock.calls[0]![0] as RunTaskCommand;
+    const app = cmd.input.overrides?.containerOverrides?.find((o) => o.name === 'app');
+    const env = Object.fromEntries((app?.environment ?? []).map((e) => [e.name, e.value]));
+    // Trailing slash stripped so the SDK's path join yields /v1/messages.
+    expect(env['ANTHROPIC_BASE_URL']).toBe('https://gw123.lambda-url.us-east-1.on.aws');
+    expect(env['ANTHROPIC_API_KEY']).toBe(GATEWAY_TOKEN);
+  });
+
+  it('auto-allowlists the gateway host so metered LLM calls pass the egress proxy', async () => {
+    await launchSandboxRun({ agent, manifest, runId: RUN_ID, gatewayToken: GATEWAY_TOKEN });
+    const cmd = ecsSend.mock.calls[0]![0] as RunTaskCommand;
+    const proxy = cmd.input.overrides?.containerOverrides?.find((o) => o.name === 'egress-proxy');
+    const allow = proxy?.environment?.find((e) => e.name === 'AV_EGRESS_ALLOW')?.value ?? '';
+    expect(allow.split(',')).toContain('gw123.lambda-url.us-east-1.on.aws');
+  });
+
   it('does NOT set HTTP(S)_PROXY on the app container (transparent proxy has no CONNECT; would break aws s3 sync)', async () => {
-    await launchSandboxRun({ agent, manifest, runId: RUN_ID });
+    await launchSandboxRun({ agent, manifest, runId: RUN_ID, gatewayToken: GATEWAY_TOKEN });
     const cmd = ecsSend.mock.calls[0]![0] as RunTaskCommand;
     const app = cmd.input.overrides?.containerOverrides?.find((o) => o.name === 'app');
     const env = Object.fromEntries((app?.environment ?? []).map((e) => [e.name, e.value]));
@@ -133,15 +193,16 @@ describe('launchSandboxRun', () => {
       agent,
       manifest: { ...manifest, timeoutMinutes: 120 },
       runId: RUN_ID,
+      gatewayToken: GATEWAY_TOKEN,
     });
     expect((stsSend.mock.calls[0]![0] as AssumeRoleCommand).input.DurationSeconds).toBe(7200);
   });
 
   it('throws when AssumeRole returns incomplete credentials', async () => {
     stsSend.mockResolvedValue({ Credentials: { AccessKeyId: 'AK' } });
-    await expect(launchSandboxRun({ agent, manifest, runId: RUN_ID })).rejects.toThrow(
-      /incomplete credentials/,
-    );
+    await expect(
+      launchSandboxRun({ agent, manifest, runId: RUN_ID, gatewayToken: GATEWAY_TOKEN }),
+    ).rejects.toThrow(/incomplete credentials/);
     expect(ecsSend).not.toHaveBeenCalled();
   });
 
@@ -156,6 +217,7 @@ describe('launchSandboxRun', () => {
         ],
       },
       runId: RUN_ID,
+      gatewayToken: GATEWAY_TOKEN,
     });
     expect(grantSecretsMock.getNotionToken).toHaveBeenCalledWith(NOTION_SECRET);
     expect(grantSecretsMock.getGithubPat).toHaveBeenCalledWith(GITHUB_SECRET);
@@ -183,6 +245,7 @@ describe('launchSandboxRun', () => {
         ],
       },
       runId: RUN_ID,
+      gatewayToken: GATEWAY_TOKEN,
     });
     const cmd = stsSend.mock.calls[0]![0] as AssumeRoleCommand;
     const policy = JSON.parse(cmd.input.Policy ?? '{}') as {
@@ -216,6 +279,7 @@ describe('launchSandboxRun', () => {
           ],
         },
         runId: RUN_ID,
+        gatewayToken: GATEWAY_TOKEN,
       }),
     ).rejects.toThrow(/not under agent/);
     expect(ecsSend).not.toHaveBeenCalled();

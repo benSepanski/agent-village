@@ -32,10 +32,26 @@ export const LOG_EVENTS = [
   'sandbox.run.finalized',
   'sandbox.run.grants_injected',
   'sandbox.run.grant_denied',
+  // Run-duration watchdog (one-shot StopTask schedule armed by the launcher,
+  // disarmed by the lifecycle handler when the task stops):
+  'sandbox.watchdog.armed',
+  'sandbox.watchdog.arm_failed',
+  'sandbox.watchdog.deleted',
+  'sandbox.watchdog.delete_failed',
   // Egress-proxy sidecar events (emitted by the per-run proxy container):
   'sandbox.proxy.started',
   'sandbox.egress.allowed',
   'sandbox.egress.denied',
+  // Anthropic metering gateway (ADR 0004; emitted by the gateway Lambda):
+  'gateway.request.unauthorized',
+  'gateway.request.rejected',
+  'gateway.call.forwarded',
+  'gateway.call.reconciled',
+  'gateway.call.usage_unparsed',
+  'gateway.call.upstream_failed',
+  'gateway.run.marked_exhausted',
+  'gateway.run.mark_failed',
+  'gateway.run.usage_record_failed',
 ] as const;
 
 export type LogEvent = (typeof LOG_EVENTS)[number];

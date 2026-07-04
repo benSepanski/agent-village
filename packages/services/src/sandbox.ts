@@ -13,6 +13,7 @@ import {
 } from '@agent-village/shared';
 import { logger } from './logger.js';
 import { buildProxyOverride } from './sandbox-egress.js';
+import { armRunWatchdog } from './sandbox-watchdog.js';
 import {
   buildSesSessionStatements,
   resolveGrantEnv,
@@ -30,12 +31,16 @@ export interface SandboxConfig {
   region: string;
   /** Env name ('dev'|'prod') — scopes per-agent grant-secret ownership checks. */
   env: string;
+  /** Anthropic metering gateway function URL (ADR 0004). */
+  gatewayUrl: string;
 }
 
 export interface LaunchInput {
   agent: Agent;
   manifest: ApplicationManifest;
   runId: RunId;
+  /** Per-run bearer token for the Anthropic metering gateway (ADR 0004). */
+  gatewayToken: string;
 }
 
 const SESSION_BUFFER_SECONDS = 300;
@@ -80,6 +85,7 @@ export function getSandboxConfig(): SandboxConfig {
   const workspaceBucket = process.env['AV_WORKSPACE_BUCKET'];
   const region = process.env['AV_REGION'];
   const env = process.env['AV_ENV'];
+  const gatewayUrl = process.env['AV_GATEWAY_URL'];
   if (
     !clusterArn ||
     !taskDefinitionArn ||
@@ -88,10 +94,11 @@ export function getSandboxConfig(): SandboxConfig {
     !securityGroupId ||
     !workspaceBucket ||
     !region ||
-    !env
+    !env ||
+    !gatewayUrl
   ) {
     throw new Error(
-      'sandbox launcher env vars are required (AV_SANDBOX_* / AV_WORKSPACE_BUCKET / AV_REGION / AV_ENV)',
+      'sandbox launcher env vars are required (AV_SANDBOX_* / AV_WORKSPACE_BUCKET / AV_REGION / AV_ENV / AV_GATEWAY_URL)',
     );
   }
   return {
@@ -103,6 +110,7 @@ export function getSandboxConfig(): SandboxConfig {
     workspaceBucket,
     region,
     env,
+    gatewayUrl,
   };
 }
 
@@ -172,6 +180,13 @@ interface AppOverrideInput {
   grantEnv: KeyValuePair[];
 }
 
+const trimTrailingSlash = (url: string): string => url.replace(/\/+$/, '');
+
+/** Gateway hostname — auto-unioned into the egress allowlist so LLM calls work. */
+function gatewayHost(gatewayUrl: string): string {
+  return new URL(gatewayUrl).hostname;
+}
+
 // The entrypoint reads AV_WORKSPACE_URI + AV_FLUSH_SECONDS; the scoped STS creds
 // override the task role so `aws s3 sync` is confined to this agent's prefix.
 function buildEnvironment(args: AppOverrideInput): KeyValuePair[] {
@@ -180,6 +195,16 @@ function buildEnvironment(args: AppOverrideInput): KeyValuePair[] {
   return [
     { name: 'AV_WORKSPACE_URI', value: `s3://${config.workspaceBucket}/${prefix}` },
     { name: 'AV_FLUSH_SECONDS', value: String(input.manifest.flushIntervalSeconds) },
+    // In-container kill switch: the entrypoint wraps the app in `timeout -k`.
+    {
+      name: 'AV_TIMEOUT_SECONDS',
+      value: String(input.manifest.timeoutMinutes * SECONDS_PER_MINUTE),
+    },
+    // Metered LLM access (ADR 0004): the Anthropic SDK honors these two vars.
+    // The "API key" is the per-run gateway bearer token — the real key never
+    // enters the sandbox; the gateway meters and forwards.
+    { name: 'ANTHROPIC_BASE_URL', value: trimTrailingSlash(config.gatewayUrl) },
+    { name: 'ANTHROPIC_API_KEY', value: input.gatewayToken },
     { name: 'AWS_ACCESS_KEY_ID', value: creds.AccessKeyId ?? '' },
     { name: 'AWS_SECRET_ACCESS_KEY', value: creds.SecretAccessKey ?? '' },
     { name: 'AWS_SESSION_TOKEN', value: creds.SessionToken ?? '' },
@@ -224,7 +249,7 @@ async function runTask(args: AppOverrideInput): Promise<string> {
       overrides: {
         containerOverrides: [
           buildContainerOverride(args),
-          buildProxyOverride(input.manifest, config.region),
+          buildProxyOverride(input.manifest, config.region, [gatewayHost(config.gatewayUrl)]),
         ],
       },
     }),
@@ -249,6 +274,14 @@ export async function launchSandboxRun(input: LaunchInput): Promise<string> {
     env: config.env,
   });
   const taskArn = await runTask({ input, config, creds, grantEnv });
+  // Kill switch (armed only after RunTask succeeds — it needs the task ARN).
+  // On failure this stops the task and throws, so no run escapes its timeout.
+  await armRunWatchdog(getEcsClient(), {
+    runId: input.runId,
+    taskArn,
+    clusterArn: config.clusterArn,
+    timeoutMinutes: input.manifest.timeoutMinutes,
+  });
   logger.info({
     event: 'sandbox.run.launched',
     agentId: input.agent.id,

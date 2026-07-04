@@ -45,6 +45,26 @@ export function pricingFor(model: AnthropicModel): ModelPricing {
   return PRICING[model];
 }
 
+/** Rough request-size → input-token conversion for gateway reservations. */
+const APPROX_CHARS_PER_TOKEN = 4;
+
+/**
+ * Pre-call reservation for a gateway-proxied Anthropic call (ADR 0004):
+ * worst-case output (`max_tokens`) plus input approximated from the request
+ * body size. The estimate holds the budget only for the duration of one call —
+ * the gateway reconciles to the response's real `usage` immediately after, so
+ * approximation error never persists in the ledger.
+ */
+export function estimateGatewayCall(
+  model: AnthropicModel,
+  maxOutputTokens: number,
+  requestChars: number,
+): number {
+  const price = PRICING[model];
+  const inputTokens = Math.ceil(requestChars / APPROX_CHARS_PER_TOKEN);
+  return (inputTokens * price.inputPerMtok + maxOutputTokens * price.outputPerMtok) / ONE_MILLION;
+}
+
 // Fargate ARM64 (us-east-1) public-list pricing. Update if AWS adjusts prices.
 const FARGATE_VCPU_PER_HOUR = 0.04048;
 const FARGATE_GB_PER_HOUR = 0.004445;

@@ -43,6 +43,12 @@ export const RunSchema = z
     taskArn: z.string().min(1).nullable().default(null),
     /** Application exit code captured when a sandbox task stops; null otherwise. */
     exitCode: z.number().int().nullable().default(null),
+    /**
+     * SHA-256 hex of the secret part of this run's Anthropic-gateway bearer
+     * token (ADR 0004). Set at sandbox launch; null for inline runs. The token
+     * itself is never persisted.
+     */
+    gatewayTokenHash: z.string().min(1).nullable().default(null),
     createdAt: z.string().datetime(),
   })
   // Inline runs must keep their Anthropic-specific fields — a sandbox run is the
