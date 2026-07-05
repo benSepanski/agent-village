@@ -2,6 +2,7 @@ import { PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   RunSchema,
   type Run,
+  type RunEvent,
   type RunStatus,
   type AgentId,
   type RunId,
@@ -9,7 +10,7 @@ import {
 import { RunNotFoundError } from '@agent-village/domain';
 import { getConfig, getDocumentClient } from './client.js';
 import { isConditionalCheckFailed } from './errors-map.js';
-import { RUN_SK_PREFIX, agentPk, runGsi1sk, runSk, userPk } from './keys.js';
+import { RUN_SK_PREFIX, agentPk, runGsi1sk, runMonthSkPrefix, runSk, userPk } from './keys.js';
 
 const DEFAULT_LIMIT = 50;
 
@@ -70,6 +71,9 @@ export interface RunPatch {
   output?: string | null;
   costUsd?: number;
   taskArn?: string | null;
+  reservedUsd?: number | null;
+  /** Full replacement of the observed-events list (callers merge before patching). */
+  events?: RunEvent[];
 }
 
 function buildRunUpdate(patch: RunPatch): {
@@ -157,6 +161,45 @@ export async function addRunUsage(
     if (isConditionalCheckFailed(err)) throw new RunNotFoundError(agentId, runId);
     throw err;
   }
+}
+
+export interface MonthCostSummary {
+  costUsd: number;
+  runCount: number;
+}
+
+/**
+ * Month-to-date spend for one agent: a key-condition range query over the
+ * runs created in `now`'s UTC calendar month (the sort key embeds the ISO
+ * `createdAt`, so `begins_with(RUN#YYYY-MM-)` is the whole month), summing
+ * each run's `costUsd`. Paginates, so no accumulator table is needed.
+ */
+export async function sumMonthCost(agentId: AgentId, now: Date): Promise<MonthCostSummary> {
+  const { tableName } = getConfig();
+  const client = getDocumentClient();
+  const summary: MonthCostSummary = { costUsd: 0, runCount: 0 };
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const res = await client.send(
+      new QueryCommand({
+        TableName: tableName,
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :month)',
+        ExpressionAttributeValues: {
+          ':pk': agentPk(agentId),
+          ':month': runMonthSkPrefix(now),
+        },
+        ProjectionExpression: 'costUsd',
+        ExclusiveStartKey: exclusiveStartKey,
+      }),
+    );
+    for (const item of res.Items ?? []) {
+      const cost = item['costUsd'];
+      summary.costUsd += typeof cost === 'number' ? cost : 0;
+      summary.runCount += 1;
+    }
+    exclusiveStartKey = res.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+  return summary;
 }
 
 export async function getOne(agentId: AgentId, runId: RunId): Promise<Run | null> {

@@ -150,3 +150,19 @@ describe('sandbox entrypoint', () => {
     expect(stubCalls()).toHaveLength(0);
   });
 });
+
+describe('timeout env lockstep (Phase 3 step 09)', () => {
+  // The kill-switch chain only holds if the env var name the launcher injects
+  // is exactly the one this script consumes — guard both sides by source.
+  it('the sandbox launcher injects the AV_TIMEOUT_SECONDS this entrypoint consumes', () => {
+    const script = readFileSync(ENTRYPOINT, 'utf8');
+    expect(script).toContain('TIMEOUT_SECONDS="${AV_TIMEOUT_SECONDS:-0}"');
+    const launcher = readFileSync(
+      fileURLToPath(new URL('../../services/src/sandbox.ts', import.meta.url)),
+      'utf8',
+    );
+    expect(launcher).toContain("name: 'AV_TIMEOUT_SECONDS'");
+    // Seconds, not minutes: the launcher converts manifest.timeoutMinutes.
+    expect(launcher).toContain('String(input.manifest.timeoutMinutes * SECONDS_PER_MINUTE)');
+  });
+});

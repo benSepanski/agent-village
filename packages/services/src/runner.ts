@@ -12,34 +12,26 @@ import {
 import {
   RunId as RunIdSchema,
   RunSchema,
+  runOutcomeMetric,
   type Agent,
   type AgentId,
   type Run,
+  type RunEvent,
+  type RunEventName,
   type RunId,
   type RunStatus,
   type UserId,
 } from '@agent-village/shared';
-import { getMyAgent } from './agent.js';
 import { executeSandboxRun } from './runner-sandbox.js';
 import { logger } from './logger.js';
 import { ulid } from './ulid.js';
 
 export { finalizeSandboxRun } from './sandbox-lifecycle.js';
 export type { FinalizeSandboxRunInput } from './sandbox-lifecycle.js';
-
-export async function listForAgent(ownerSub: UserId, agentId: AgentId): Promise<Run[]> {
-  await getMyAgent(ownerSub, agentId);
-  return runRepo.listForAgent(agentId);
-}
-
-export async function getRun(
-  ownerSub: UserId,
-  agentId: AgentId,
-  runId: RunId,
-): Promise<Run | null> {
-  await getMyAgent(ownerSub, agentId);
-  return runRepo.getOne(agentId, runId);
-}
+export { getRunLogs } from './run-logs.js';
+export type { RunLogEvent, RunLogsPage, RunLogsQuery } from './run-logs.js';
+export { getRun, listForAgent, monthToDateSpend } from './run-queries.js';
+export type { MonthToDateSpend } from './run-queries.js';
 
 const MAX_TOKENS = 1024;
 const DRY_RUN_MAX_TOKENS = 256;
@@ -155,6 +147,8 @@ async function reserve(ctx: RunContext, agent: Agent, estimateUsd: number): Prom
         agentId: agent.id,
         runId: ctx.runId,
         traceId: ctx.traceId,
+        // Real EMF datapoint for the spend-rejected alarm (Phase 3 step 07).
+        ...runOutcomeMetric('spend_limit_exceeded'),
       });
       return false;
     }
@@ -204,7 +198,29 @@ async function callAnthropic(ctx: RunContext, agent: Agent, apiKey: string): Pro
   }
 }
 
+function inlineTerminalEventName(status: RunStatus): RunEventName {
+  if (status === 'ok') return 'agent.run.completed';
+  if (status === 'spend_limit_exceeded') return 'agent.run.spend_rejected';
+  return 'agent.run.failed';
+}
+
+/**
+ * Real (measured, not interpolated) lifecycle events for an inline run: the
+ * run started at `startedAt` and reached its terminal state `durationMs`
+ * later — both timestamps the runner itself observed.
+ */
+function inlineRunEvents(ctx: RunContext, status: RunStatus, durationMs: number): RunEvent[] {
+  return [
+    { event: 'agent.run.started', at: new Date(ctx.startedAt).toISOString() },
+    {
+      event: inlineTerminalEventName(status),
+      at: new Date(ctx.startedAt + durationMs).toISOString(),
+    },
+  ];
+}
+
 function buildRun(ctx: RunContext, agent: Agent, result: CallResult): Run {
+  const durationMs = Date.now() - ctx.startedAt;
   return RunSchema.parse({
     id: ctx.runId,
     agentId: agent.id,
@@ -218,12 +234,13 @@ function buildRun(ctx: RunContext, agent: Agent, result: CallResult): Run {
     tokensOut: result.tokensOut,
     output: result.status === 'ok' ? result.output : null,
     error: result.error,
-    durationMs: Date.now() - ctx.startedAt,
+    durationMs,
     traceId: ctx.traceId,
     model: agent.model,
     systemPromptHash: hashSystemPrompt(agent.systemPrompt),
     dryRun: ctx.dryRun,
     replayOfRunId: ctx.replayOfRunId ?? null,
+    events: inlineRunEvents(ctx, result.status, durationMs),
     createdAt: new Date(ctx.startedAt).toISOString(),
   });
 }
@@ -318,6 +335,8 @@ export async function executeRun(input: ExecuteRunInput): Promise<ExecuteRunResu
     ...runLog(ctx),
     status: run.status,
     metric: { 'run.cost_usd': run.costUsd, 'run.duration_ms': run.durationMs },
+    // Real EMF datapoint for the runs.error alarm when the call failed.
+    ...runOutcomeMetric(run.status),
   });
   return { runId: run.id, status: run.status };
 }

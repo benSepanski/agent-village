@@ -55,6 +55,60 @@ describe('ToolGrant', () => {
   it('rejects unknown grant kinds', () => {
     expect(() => ToolGrant.parse({ kind: 'slack', channel: '#general' })).toThrow();
   });
+
+  it('accepts a generic secret grant with a kebab-case name and UPPER_SNAKE env', () => {
+    const grant = ToolGrant.parse({
+      kind: 'secret',
+      name: 'gmail-app-password',
+      env: 'GMAIL_APP_PASSWORD',
+    });
+    expect(grant.kind).toBe('secret');
+  });
+
+  it('rejects secret grant names that are not kebab-case', () => {
+    for (const name of [
+      'Gmail-App-Password', // uppercase
+      'gmail_app_password', // underscores
+      '-gmail', // leading hyphen
+      'gmail-', // trailing hyphen
+      'a--b', // double hyphen
+      'a/b', // path separator: would escape the agent's secret prefix
+      'a.b', // dots
+      '', // empty
+    ]) {
+      expect(() => ToolGrant.parse({ kind: 'secret', name, env: 'X' }), name).toThrow();
+    }
+  });
+
+  it('rejects secret grant names that are platform-managed leaves', () => {
+    // 'anthropic-key' would hand the sandbox the real Anthropic key, bypassing
+    // the metering gateway's spend cap (ADR 0004).
+    for (const name of ['anthropic-key', 'notion-token', 'github-pat']) {
+      expect(() => ToolGrant.parse({ kind: 'secret', name, env: 'X' }), name).toThrow();
+    }
+  });
+
+  it('rejects secret grant env vars that are not valid env var names', () => {
+    for (const env of ['gmail_app_password', '1PASSWORD', 'MY VAR', 'MY-VAR', '']) {
+      expect(() => ToolGrant.parse({ kind: 'secret', name: 'ok', env }), env).toThrow();
+    }
+  });
+
+  it('rejects secret grant env vars that collide with platform-reserved env', () => {
+    for (const env of [
+      'ANTHROPIC_BASE_URL',
+      'ANTHROPIC_API_KEY',
+      'AV_WORKSPACE_URI',
+      'AV_ANYTHING_FUTURE',
+      'AWS_SECRET_ACCESS_KEY',
+      'NOTION_TOKEN',
+      'GITHUB_TOKEN',
+      'HTTPS_PROXY',
+      'PATH',
+    ]) {
+      expect(() => ToolGrant.parse({ kind: 'secret', name: 'ok', env }), env).toThrow();
+    }
+  });
 });
 
 describe('ApplicationManifest', () => {
@@ -80,6 +134,29 @@ describe('ApplicationManifest', () => {
     });
     expect(parsed.egressAllow).toHaveLength(2);
     expect(parsed.flushIntervalSeconds).toBe(0);
+  });
+
+  it('accepts multiple secret grants with distinct env vars', () => {
+    const parsed = ApplicationManifest.parse({
+      ...validManifest,
+      grants: [
+        { kind: 'secret', name: 'gmail-app-password', env: 'GMAIL_APP_PASSWORD' },
+        { kind: 'secret', name: 'slack-webhook', env: 'SLACK_WEBHOOK_URL' },
+      ],
+    });
+    expect(parsed.grants).toHaveLength(2);
+  });
+
+  it('rejects two secret grants injecting the same env var', () => {
+    expect(() =>
+      ApplicationManifest.parse({
+        ...validManifest,
+        grants: [
+          { kind: 'secret', name: 'password-a', env: 'APP_PASSWORD' },
+          { kind: 'secret', name: 'password-b', env: 'APP_PASSWORD' },
+        ],
+      }),
+    ).toThrow(/duplicate secret grant env var/);
   });
 
   it('rejects an empty command array and out-of-bounds timeouts', () => {

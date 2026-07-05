@@ -66,10 +66,20 @@ const HANDLERS: HandlerSpec[] = [
     perms: 'write',
   },
   { name: 'runs-list', method: HttpMethod.GET, routePath: '/agents/{id}/runs', perms: 'read' },
+  // Month-to-date spend summed live from run records (Phase 3 step 06).
+  { name: 'agents-spend', method: HttpMethod.GET, routePath: '/agents/{id}/spend', perms: 'read' },
   {
     name: 'runs-get',
     method: HttpMethod.GET,
     routePath: '/agents/{id}/runs/{runId}',
+    perms: 'read',
+  },
+  // Live observability (Phase 3 step 07): paginated FilterLogEvents
+  // passthrough over the sandbox log group for one run's streams.
+  {
+    name: 'runs-logs',
+    method: HttpMethod.GET,
+    routePath: '/agents/{id}/runs/{runId}/logs',
     perms: 'read',
   },
 ];
@@ -140,6 +150,8 @@ export class ApiStack extends Stack {
         AV_SCHEDULER_GROUP: scheduleGroupName,
         AV_RUNNER_LAMBDA_ARN: runnerFunction.functionArn,
         AV_SCHEDULER_ROLE_ARN: schedulerInvokeRole.roleArn,
+        // Deterministic name from sandbox-stack.ts — no cross-stack edge needed.
+        AV_SANDBOX_LOG_GROUP: `${config.prefix}-sandbox`,
       },
       bundling: {
         format: OutputFormat.ESM,
@@ -161,7 +173,20 @@ export class ApiStack extends Stack {
     if (spec.perms === 'write') grantSecretsCrud(fn, props.config);
     if (spec.needsScheduler) grantSchedulerCrud(fn, props.schedulerInvokeRole);
     if (spec.name === 'agents-run-now') grantRunNowExtras(fn, props);
+    if (spec.name === 'runs-logs') grantSandboxLogsRead(fn, props.config);
   }
+}
+
+/** FilterLogEvents over the sandbox task log group (account-wildcarded for credential-free synth). */
+function grantSandboxLogsRead(fn: NodejsFunction, config: EnvConfig): void {
+  const logGroupArn = `arn:aws:logs:${config.region}:*:log-group:${config.prefix}-sandbox`;
+  fn.addToRolePolicy(
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['logs:FilterLogEvents', 'logs:GetLogEvents'],
+      resources: [logGroupArn, `${logGroupArn}:*`],
+    }),
+  );
 }
 
 function grantSecretsCrud(fn: NodejsFunction, config: EnvConfig): void {

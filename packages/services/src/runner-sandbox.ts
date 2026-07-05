@@ -6,6 +6,7 @@ import {
 } from '@agent-village/domain';
 import {
   RunSchema,
+  runOutcomeMetric,
   type Agent,
   type AgentId,
   type Run,
@@ -14,6 +15,7 @@ import {
 } from '@agent-village/shared';
 import { mintRunToken } from './gateway-token.js';
 import { launchSandboxRun } from './sandbox.js';
+import { sandboxTaskSize } from './sandbox-size.js';
 import { logger } from './logger.js';
 
 /** The subset of the runner's RunContext a sandbox launch needs. */
@@ -29,12 +31,8 @@ export interface SandboxRunResult {
   status: RunStatus;
 }
 
-const DEFAULT_CPU = 256;
-const DEFAULT_MEMORY_MB = 512;
-
 function sandboxEstimate(timeoutMinutes: number): number {
-  const cpu = Number(process.env['AV_SANDBOX_CPU'] ?? DEFAULT_CPU);
-  const memMb = Number(process.env['AV_SANDBOX_MEMORY'] ?? DEFAULT_MEMORY_MB);
+  const { cpu, memMb } = sandboxTaskSize();
   return estimateSandboxCost(timeoutMinutes, cpu, memMb);
 }
 
@@ -57,6 +55,9 @@ function buildSandboxRun(
     status: 'running',
     kind: 'sandbox',
     costUsd,
+    // Honest-cost marker (Phase 3 step 06): the lifecycle handler reconciles
+    // this flat compute reservation to actual duration and nulls the field.
+    reservedUsd: costUsd,
     output: null,
     error: null,
     durationMs: 0,
@@ -67,6 +68,9 @@ function buildSandboxRun(
     taskArn: null,
     exitCode: null,
     gatewayTokenHash,
+    // First observed transition; the lifecycle handler appends the rest from
+    // the ECS task-state-change event when the task stops.
+    events: [{ event: 'sandbox.run.launched', at: new Date(ctx.startedAt).toISOString() }],
     createdAt: new Date(ctx.startedAt).toISOString(),
   });
 }
@@ -86,7 +90,12 @@ async function reserveSandboxSpend(
     return true;
   } catch (err) {
     if (err instanceof SpendLimitExceededError) {
-      logger.warn({ event: 'agent.run.spend_rejected', ...runLog(ctx) });
+      logger.warn({
+        event: 'agent.run.spend_rejected',
+        ...runLog(ctx),
+        // Real EMF datapoint for the spend-rejected alarm (Phase 3 step 07).
+        ...runOutcomeMetric('spend_limit_exceeded'),
+      });
       return false;
     }
     throw err;
@@ -119,6 +128,7 @@ async function appendRejected(ctx: SandboxRunContext, agent: Agent): Promise<Run
     dryRun: false,
     taskArn: null,
     exitCode: null,
+    events: [{ event: 'agent.run.spend_rejected', at: new Date(ctx.startedAt).toISOString() }],
     createdAt: new Date(ctx.startedAt).toISOString(),
   });
   await runRepo.append(run);
@@ -153,6 +163,13 @@ async function onLaunchFailure(
   await runRepo.patchRun(agent.id, run.createdAt, ctx.runId, {
     status: 'launch_failed',
     error: errMessage,
+    // The reservation is refunded below — null the marker so a stray task-stop
+    // event for a half-launched task cannot reconcile (i.e. refund) it again,
+    // and zero the flat estimate so the run doesn't report cost that was
+    // refunded (month-to-date sums costUsd).
+    reservedUsd: null,
+    costUsd: 0,
+    events: [...run.events, { event: 'sandbox.run.launch_failed', at: new Date().toISOString() }],
   });
   await agentRepo.releaseActiveRun({
     agentId: agent.id,
@@ -160,7 +177,12 @@ async function onLaunchFailure(
     runId: ctx.runId,
   });
   await refund(ctx, agent, run.costUsd);
-  logger.error({ event: 'sandbox.run.launch_failed', ...runLog(ctx) });
+  logger.error({
+    event: 'sandbox.run.launch_failed',
+    ...runLog(ctx),
+    // Real EMF datapoint for the runs.error alarm (Phase 3 step 07).
+    ...runOutcomeMetric('launch_failed'),
+  });
 }
 
 async function launchAndRecord(

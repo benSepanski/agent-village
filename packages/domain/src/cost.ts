@@ -75,12 +75,27 @@ const MINUTES_PER_HOUR = 60;
 /**
  * Worst-case compute cost of a single sandbox run: the task billed at full
  * `cpu`/`memMb` for its entire `timeoutMinutes`. Used to reserve spend before
- * launching, so a runaway schedule can't exceed an agent's spend limit. Actual
- * per-second Fargate cost reconciliation is a future refinement.
+ * launching, so a runaway schedule can't exceed an agent's spend limit. The
+ * lifecycle handler reconciles the reservation to the task's actual duration
+ * via `actualSandboxCost` when it stops.
  */
 export function estimateSandboxCost(timeoutMinutes: number, cpu: number, memMb: number): number {
   const vcpus = cpu / CPU_UNITS_PER_VCPU;
   const gib = memMb / MIB_PER_GB;
   const perHour = vcpus * FARGATE_VCPU_PER_HOUR + gib * FARGATE_GB_PER_HOUR;
   return (perHour * timeoutMinutes) / MINUTES_PER_HOUR;
+}
+
+/** Fargate bills per second with a one-minute minimum per task. */
+const FARGATE_MIN_BILLED_MS = 60_000;
+const MS_PER_MINUTE = 60_000;
+
+/**
+ * Actual compute cost of a finished sandbox run, from the task's observed
+ * start→stop duration. Applies Fargate's one-minute minimum, so a task that
+ * exits (or fails) immediately still bills one minute — never zero.
+ */
+export function actualSandboxCost(durationMs: number, cpu: number, memMb: number): number {
+  const billedMs = Math.max(durationMs, FARGATE_MIN_BILLED_MS);
+  return estimateSandboxCost(billedMs / MS_PER_MINUTE, cpu, memMb);
 }

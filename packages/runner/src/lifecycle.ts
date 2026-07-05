@@ -35,6 +35,13 @@ function appExitCode(detail: TaskDetail): number | null {
   return detail.containers?.find((c) => c.name === 'app')?.exitCode ?? null;
 }
 
+/** Normalize an ECS event timestamp to strict ISO; undefined when absent/invalid. */
+function toIso(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? undefined : new Date(ms).toISOString();
+}
+
 /**
  * EventBridge target for "ECS Task State Change" (STOPPED) events. Recovers the
  * run id from `startedBy` and the agent id from `group`, then finalizes the run.
@@ -45,12 +52,17 @@ export async function handler(event: unknown): Promise<void> {
     if (detail.lastStatus !== 'STOPPED') return;
     const runId = RunId.parse(detail.startedBy);
     const agentId = AgentId.parse((detail.group ?? '').slice(AGENT_GROUP_PREFIX.length));
+    const taskStartedAt = toIso(detail.startedAt);
+    const taskStoppedAt = toIso(detail.stoppedAt);
     await runner.finalizeSandboxRun({
       agentId,
       runId,
       exitCode: appExitCode(detail),
       ...(detail.stoppedReason ? { stoppedReason: detail.stoppedReason } : {}),
       durationMs: toDurationMs(detail),
+      // Real observed transitions for the run's persisted event timeline.
+      ...(taskStartedAt ? { taskStartedAt } : {}),
+      ...(taskStoppedAt ? { taskStoppedAt } : {}),
     });
   } catch (err) {
     logger.error({ event: 'agent.run.failed', err });

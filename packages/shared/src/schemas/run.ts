@@ -17,6 +17,35 @@ export type RunStatus = z.infer<typeof RunStatus>;
 export const RunKind = z.enum(['inline', 'sandbox']);
 export type RunKind = z.infer<typeof RunKind>;
 
+/**
+ * Lifecycle transitions actually observed for a run (Phase 3 step 07). Inline
+ * events are written by the runner with its own measured timestamps; sandbox
+ * events are written by the launcher and by the lifecycle handler from the
+ * ECS task-state-change event (its `startedAt`/`stoppedAt`), so the timeline
+ * UI renders real transitions instead of interpolated fakes.
+ */
+export const RunEventName = z.enum([
+  // Inline runs:
+  'agent.run.started',
+  'agent.run.completed',
+  'agent.run.failed',
+  'agent.run.spend_rejected',
+  // Sandbox runs:
+  'sandbox.run.launched',
+  'sandbox.run.launch_failed',
+  'sandbox.run.task_started',
+  'sandbox.run.task_stopped',
+  'sandbox.run.finalized',
+]);
+export type RunEventName = z.infer<typeof RunEventName>;
+
+export const RunEventSchema = z.object({
+  event: RunEventName,
+  /** ISO timestamp at which the transition was observed to happen. */
+  at: z.string().datetime(),
+});
+export type RunEvent = z.infer<typeof RunEventSchema>;
+
 export const RunSchema = z
   .object({
     id: RunId,
@@ -49,6 +78,20 @@ export const RunSchema = z
      * itself is never persisted.
      */
     gatewayTokenHash: z.string().min(1).nullable().default(null),
+    /**
+     * Flat Fargate compute reservation (USD) held for a sandbox run while it
+     * is in flight. The lifecycle handler reconciles it to actual duration
+     * when the task stops and nulls the field, so it doubles as the
+     * "not yet reconciled" marker. Null for inline runs, legacy sandbox runs,
+     * and reconciled runs.
+     */
+    reservedUsd: z.number().nonnegative().nullable().default(null),
+    /**
+     * Observed lifecycle transitions, oldest first. Defaults to [] so runs
+     * persisted before this field existed still parse; the timeline UI shows
+     * an honest empty state for those instead of fabricating events.
+     */
+    events: z.array(RunEventSchema).default([]),
     createdAt: z.string().datetime(),
   })
   // Inline runs must keep their Anthropic-specific fields — a sandbox run is the

@@ -106,6 +106,14 @@ NagSuppressions.addStackSuppressions(api, [
       'Resource::<TableCD117FA1.Arn>/index/*',
       'Resource::<RunnerFunctionB6FAF475.Arn>:*',
       'Resource::*',
+      // runs-logs FilterLogEvents over the sandbox task log group: the account
+      // id is wildcarded so synth stays credential-free, and `:*` is the
+      // log-stream wildcard within that one group — the narrowest grant
+      // CloudWatch Logs supports for FilterLogEvents.
+      'Resource::arn:aws:logs:us-east-1:*:log-group:agent-village-dev-sandbox',
+      'Resource::arn:aws:logs:us-east-1:*:log-group:agent-village-dev-sandbox:*',
+      'Resource::arn:aws:logs:us-east-1:*:log-group:agent-village-prod-sandbox',
+      'Resource::arn:aws:logs:us-east-1:*:log-group:agent-village-prod-sandbox:*',
     ],
   },
   {
@@ -141,12 +149,14 @@ NagSuppressions.addStackSuppressions(runner, [
     reason:
       'Per-agent secret ARNs are dynamic; DDB GSI access requires /index/* on the table ARN; scheduler invoke role is scoped to the runner Lambda only. ecs:RunTask is scoped to the single sandbox task-definition family (revision wildcard is required — RunTask cannot target a fixed revision sanely); ecs:StopTask and the per-run watchdog schedules are per-run resources with dynamic ids, so the sandbox cluster / watchdog group is the narrowest scope; account is wildcarded only so the suppression is deterministic during credential-free synth.',
     appliesTo: [
+      // The launcher resolves generic `secret` grants whose leaf names are
+      // user-chosen, so the whole per-agent prefix is the narrowest scope;
+      // reserved platform leaves are blocked in code (isReservedSecretLeaf).
+      'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/dev/agents/*',
+      'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/prod/agents/*',
+      // The metering gateway reads only the per-agent Anthropic key.
       'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/dev/agents/*/anthropic-key-*',
       'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/prod/agents/*/anthropic-key-*',
-      'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/dev/agents/*/notion-token-*',
-      'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/prod/agents/*/notion-token-*',
-      'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/dev/agents/*/github-pat-*',
-      'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/prod/agents/*/github-pat-*',
       'Resource::<TableCD117FA1.Arn>/index/*',
       'Resource::arn:aws:ecs:us-east-1:*:task-definition/agent-village-dev-sandbox:*',
       'Resource::arn:aws:ecs:us-east-1:*:task-definition/agent-village-prod-sandbox:*',

@@ -100,9 +100,11 @@ export class MonitoringStack extends Stack {
       treatMissingData: TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(action);
 
+    // Emitted (EMF) from the terminal-status log lines in @agent-village/services
+    // via runOutcomeMetric: status=error and status=launch_failed runs.
     new Alarm(this, 'RunnerEmfErrorsAlarm', {
       alarmName: `${config.prefix}-runs-error-count`,
-      alarmDescription: 'EMF runs.error metric above zero (status=error runs)',
+      alarmDescription: 'EMF runs.error metric above zero (status=error / launch_failed runs)',
       metric: new Metric({
         namespace: 'AgentVillage',
         metricName: 'runs.error',
@@ -118,9 +120,11 @@ export class MonitoringStack extends Stack {
   }
 
   private buildSpendAlarm(config: EnvConfig, action: SnsAction): void {
+    // Emitted (EMF) via runOutcomeMetric at reserve-time rejections and at
+    // sandbox finalization of a mid-run (gateway-marked) breach.
     new Alarm(this, 'SpendRejectedAlarm', {
       alarmName: `${config.prefix}-spend-rejected`,
-      alarmDescription: 'A run was rejected by the spend-limit conditional check',
+      alarmDescription: 'A run was rejected or stopped by the spend limit',
       metric: new Metric({
         namespace: 'AgentVillage',
         metricName: 'runs.spend_limit_exceeded',

@@ -4,6 +4,7 @@ import { api } from '../api-client/client.js';
 import type { Run } from '../api-client/types.js';
 import { RunControls } from '../components/RunControls.js';
 import { RunDetail } from '../components/RunDetail.js';
+import { RunLogs } from '../components/RunLogs.js';
 import { RunTimeline } from '../components/RunTimeline.js';
 
 interface RunNowResult {
@@ -46,6 +47,12 @@ export function RunDetailPage() {
       />
       <h4>Timeline</h4>
       <RunTimeline run={run} />
+      {run.kind === 'sandbox' ? (
+        <>
+          <h4>Logs</h4>
+          <RunLogs agentId={agentId} runId={runId} running={run.status === 'running'} />
+        </>
+      ) : null}
     </section>
   );
 }

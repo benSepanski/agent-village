@@ -46,8 +46,15 @@ per-run sidecar named `egress-proxy`, not an always-on service.
   clients onto TCP TLS, which is enforced. Loopback and DNS (UDP/53) stay open.
 - **Hostname allowlist via SNI / Host peek.** The Node proxy peeks the first
   bytes of each redirected connection: a TLS ClientHello yields the SNI server
-  name (dial the real host on 443), a plaintext HTTP request yields the Host
-  header (dial on 80). The hostname is matched — exact or leading-`*.` wildcard,
+  name, a plaintext HTTP request yields the Host header. The original
+  destination port is recovered by **port-mapped REDIRECT** (Phase 3 step 04):
+  each supported port gets its own local listener (80→15080, 443→15443,
+  465→15465, 993→15993) and the accepting listener identifies the port, so
+  allowed hosts are dialed on their real ports (IMAPS 993, SMTPS 465);
+  plaintext HTTP stays port-80-only, all other TCP ports are denied by a
+  catch-all listener, and STARTTLS (587/143, server-speaks-first) is
+  unsupported — see the design note atop `proxy.mjs`.
+  The hostname is matched — exact or leading-`*.` wildcard,
   case-insensitive, mirroring `EgressDomain` in
   [`manifest.ts`](../../packages/shared/src/schemas/manifest.ts) — against the
   allowlist. Allowed connections are spliced bidirectionally; denied ones are

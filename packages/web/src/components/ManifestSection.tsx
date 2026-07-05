@@ -3,6 +3,7 @@ import type { Agent, ToolGrant } from '../api-client/types.js';
 function grantKey(grant: ToolGrant): string {
   if (grant.kind === 'ses') return `ses-${grant.fromAddress}`;
   if (grant.kind === 'notion') return `notion-${grant.secretName}`;
+  if (grant.kind === 'secret') return `secret-${grant.name}`;
   return `github-${grant.secretName}`;
 }
 
@@ -18,6 +19,13 @@ function GrantRow({ grant }: { grant: ToolGrant }) {
     return (
       <li>
         <strong>notion</strong> — secret {grant.secretName}
+      </li>
+    );
+  }
+  if (grant.kind === 'secret') {
+    return (
+      <li>
+        <strong>secret</strong> — {grant.name} as {grant.env}
       </li>
     );
   }

@@ -218,6 +218,10 @@ export class RunnerStack extends Stack {
         AV_TABLE_NAME: table.tableName,
         AV_REGION: config.region,
         AV_WATCHDOG_GROUP: this.watchdogGroupName,
+        // Honest-cost reconciliation prices the actual task duration with the
+        // same size the launcher used for the flat reservation.
+        AV_SANDBOX_CPU: String(config.sandboxTaskCpu),
+        AV_SANDBOX_MEMORY: String(config.sandboxTaskMemoryMb),
       },
       bundling: BUNDLING,
     });
@@ -251,14 +255,12 @@ export class RunnerStack extends Stack {
       new PolicyStatement({
         effect: Effect.ALLOW,
         actions: ['secretsmanager:GetSecretValue'],
-        // Per-agent secrets: the Anthropic key plus the tool-grant secrets
-        // (Notion token, GitHub PAT). Trailing `-*` matches the random ARN
-        // suffix Secrets Manager appends.
-        resources: [
-          `${prefix}/*/anthropic-key-*`,
-          `${prefix}/*/notion-token-*`,
-          `${prefix}/*/github-pat-*`,
-        ],
+        // Per-agent secrets: the Anthropic key, the typed tool-grant secrets
+        // (Notion token, GitHub PAT), and generic `secret` grants whose leaf
+        // names are user-chosen — hence the full per-agent prefix. Reserved
+        // platform leaves are still unreachable from manifests: the schema and
+        // resolveGrantEnv both reject them (isReservedSecretLeaf).
+        resources: [`${prefix}/*`],
       }),
     );
   }

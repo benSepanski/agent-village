@@ -1,11 +1,16 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 // The proxy pure helpers live in the image dir as ESM so proxy.mjs can import
 // them at runtime; vitest imports the same module for isolated unit tests.
 import {
+  HTTP_PORT,
+  SUPPORTED_PORTS,
+  TLS_PORTS,
   isHostAllowed,
   parseAllowlist,
   parseHttpHost,
   parseSni,
+  resolveTarget,
 } from '../proxy-image/allowlist.mjs';
 
 describe('isHostAllowed', () => {
@@ -104,5 +109,46 @@ describe('parseHttpHost', () => {
 
   it('returns null when there is no Host header', () => {
     expect(parseHttpHost(Buffer.from('GET / HTTP/1.1\r\n\r\n'))).toBeNull();
+  });
+});
+
+describe('resolveTarget (port-mapped original-destination recovery)', () => {
+  const hello = clientHelloWithSni('imap.gmail.com');
+  const httpReq = Buffer.from('GET / HTTP/1.1\r\nHost: example.com\r\n\r\n');
+
+  it('preserves the original port for TLS-with-SNI on every TLS port', () => {
+    for (const port of TLS_PORTS) {
+      expect(resolveTarget(hello, port)).toEqual({ host: 'imap.gmail.com', port });
+    }
+  });
+
+  it('rejects TLS on the plaintext HTTP port', () => {
+    expect(resolveTarget(hello, HTTP_PORT)).toBeNull();
+  });
+
+  it('classifies plaintext HTTP on port 80 only', () => {
+    expect(resolveTarget(httpReq, HTTP_PORT)).toEqual({ host: 'example.com', port: 80 });
+    expect(resolveTarget(httpReq, 443)).toBeNull();
+    expect(resolveTarget(httpReq, 993)).toBeNull();
+  });
+
+  it('returns null for unclassifiable bytes on any port', () => {
+    expect(resolveTarget(Buffer.alloc(0), 443)).toBeNull();
+    expect(resolveTarget(Buffer.from('EHLO example.com\r\n'), 443)).toBeNull();
+  });
+});
+
+describe('entrypoint.sh port map lockstep', () => {
+  it('REDIRECTs exactly the supported original ports to their 15000+P listeners', () => {
+    const script = readFileSync(new URL('../proxy-image/entrypoint.sh', import.meta.url), 'utf8');
+    const loop = /for dport in ([0-9 ]+); do/.exec(script);
+    expect(loop).not.toBeNull();
+    const scriptPorts = (loop?.[1] ?? '')
+      .trim()
+      .split(/\s+/)
+      .map(Number)
+      .sort((a, b) => a - b);
+    expect(scriptPorts).toEqual([...SUPPORTED_PORTS].sort((a, b) => a - b));
+    expect(script).toContain('--to-ports "$((15000 + dport))"');
   });
 });

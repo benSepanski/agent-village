@@ -20,7 +20,18 @@ iptables -t nat -A AV_EGRESS -m owner --uid-owner "$PROXY_UID" -j RETURN
 iptables -t nat -A AV_EGRESS -o lo -j RETURN
 iptables -t nat -A AV_EGRESS -p udp --dport 53 -j RETURN
 iptables -t nat -A AV_EGRESS -p tcp --dport 53 -j RETURN
-# Everything else: transparent-redirect TCP to the proxy.
+# Port-mapped REDIRECT (see the design note atop proxy.mjs): each supported
+# original destination port P gets its own local listener at 15000 + P, so the
+# proxy can recover the original port without SO_ORIGINAL_DST. The port list
+# is kept in lockstep with SUPPORTED_PORTS in allowlist.mjs (guarded by
+# packages/infra/test/proxy-allowlist.test.ts).
+for dport in 80 443 465 993; do
+  iptables -t nat -A AV_EGRESS -p tcp --dport "$dport" -j REDIRECT --to-ports "$((15000 + dport))"
+done
+# Any other TCP port: redirect to the catch-all listener, which denies (the
+# original destination is unrecoverable there). STARTTLS ports (587/143) are
+# intentionally unmapped — server-speaks-first protocols cannot be classified
+# by a client-first peek; apps use implicit TLS (465/993) instead.
 iptables -t nat -A AV_EGRESS -p tcp -j REDIRECT --to-ports "$PROXY_PORT"
 iptables -t nat -A OUTPUT -p tcp -j AV_EGRESS
 
@@ -32,7 +43,7 @@ iptables -t nat -A OUTPUT -p tcp -j AV_EGRESS
 iptables -A OUTPUT -o lo -j ACCEPT
 iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
 iptables -A OUTPUT -p udp -j DROP
-echo "egress-proxy: iptables rules installed (TCP redirect ->:${PROXY_PORT}, non-DNS UDP dropped)" >&2
+echo "egress-proxy: iptables rules installed (port-mapped TCP redirect 80/443/465/993 ->15000+P, catch-all ->:${PROXY_PORT}, non-DNS UDP dropped)" >&2
 
 # Drop NET_ADMIN before running untrusted-adjacent Node: setpriv runs the proxy
 # as PROXY_UID with an empty capability set. The uid must match --uid-owner.

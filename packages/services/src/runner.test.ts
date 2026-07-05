@@ -17,7 +17,7 @@ const { agentRepoMock, runRepoMock, secretsMock, sandboxMock } = vi.hoisted(() =
     acquireActiveRun: vi.fn(),
     releaseActiveRun: vi.fn(),
   },
-  runRepoMock: { append: vi.fn(), getOne: vi.fn(), patchRun: vi.fn() },
+  runRepoMock: { append: vi.fn(), getOne: vi.fn(), patchRun: vi.fn(), sumMonthCost: vi.fn() },
   secretsMock: { getAnthropicKey: vi.fn() },
   sandboxMock: { launchSandboxRun: vi.fn() },
 }));
@@ -31,7 +31,7 @@ vi.mock('@agent-village/data', () => ({
 
 vi.mock('./sandbox.js', () => ({ launchSandboxRun: sandboxMock.launchSandboxRun }));
 
-import { executeRun, setAnthropicFactory } from './runner.js';
+import { executeRun, monthToDateSpend, setAnthropicFactory } from './runner.js';
 
 const AGENT_ID = '01HZ1234567890ABCDEFGHJKMN';
 const ORIG_RUN_ID = '01HZN0PQRSTVWXYZ0123456789';
@@ -67,6 +67,7 @@ beforeEach(() => {
   runRepoMock.append.mockReset();
   runRepoMock.getOne.mockReset();
   runRepoMock.patchRun.mockReset();
+  runRepoMock.sumMonthCost.mockReset();
   sandboxMock.launchSandboxRun.mockReset();
   secretsMock.getAnthropicKey.mockReset();
   anthropicClient.messages.create.mockReset();
@@ -101,6 +102,14 @@ describe('executeRun (happy path)', () => {
     expect(persisted.tokensIn).toBe(10);
     expect(persisted.tokensOut).toBe(20);
     expect(persisted.output).toBe('Hello, world.');
+    // Real (measured) lifecycle events for the timeline (Phase 3 step 07).
+    expect(persisted.events.map((e: { event: string }) => e.event)).toEqual([
+      'agent.run.started',
+      'agent.run.completed',
+    ]);
+    expect(Date.parse(persisted.events[1].at) - Date.parse(persisted.events[0].at)).toBe(
+      persisted.durationMs,
+    );
   });
 
   it('caps max_tokens at 256 for dry-run', async () => {
@@ -231,6 +240,13 @@ describe('executeRun (sandbox)', () => {
     expect(persisted.kind).toBe('sandbox');
     expect(persisted.status).toBe('running');
     expect(persisted.model).toBeNull();
+    // Honest-cost marker: the flat reservation is stored for the lifecycle
+    // handler to reconcile to actual duration.
+    expect(persisted.reservedUsd).toBe(persisted.costUsd);
+    expect(persisted.reservedUsd).toBeGreaterThan(0);
+    expect(persisted.events.map((e: { event: string }) => e.event)).toEqual([
+      'sandbox.run.launched',
+    ]);
     expect(runRepoMock.patchRun.mock.calls[0]![3]).toEqual({ taskArn: TASK_ARN });
   });
 
@@ -257,7 +273,11 @@ describe('executeRun (sandbox)', () => {
     sandboxMock.launchSandboxRun.mockRejectedValue(new Error('capacity'));
 
     await expect(executeRun({ agentId: AGENT_ID })).rejects.toThrow('capacity');
-    expect(runRepoMock.patchRun.mock.calls.some((c) => c[3].status === 'launch_failed')).toBe(true);
+    const failPatch = runRepoMock.patchRun.mock.calls.find((c) => c[3].status === 'launch_failed');
+    expect(failPatch).toBeDefined();
+    // The refunded flat estimate must not linger as reported cost (month-to-date
+    // sums costUsd), and the nulled marker blocks a stray stop-event reconcile.
+    expect(failPatch![3]).toMatchObject({ costUsd: 0, reservedUsd: null });
     expect(agentRepoMock.releaseActiveRun).toHaveBeenCalled();
     expect(agentRepoMock.finalizeSpend.mock.calls[0]![0].deltaUsd).toBeLessThan(0);
   });
@@ -280,6 +300,28 @@ describe('executeRun (sandbox)', () => {
     expect(agentRepoMock.acquireActiveRun).not.toHaveBeenCalled();
     expect(sandboxMock.launchSandboxRun).not.toHaveBeenCalled();
     expect(runRepoMock.append.mock.calls[0]![0].kind).toBe('sandbox');
+  });
+});
+
+describe('monthToDateSpend', () => {
+  it('is owner-scoped and reports the UTC month with the summed run costs', async () => {
+    agentRepoMock.getAgent.mockResolvedValue(agentFixture);
+    runRepoMock.sumMonthCost.mockResolvedValue({ costUsd: 0.1234, runCount: 7 });
+
+    const now = new Date('2026-07-04T10:00:00.000Z');
+    const spend = await monthToDateSpend(SUB, AGENT_ID, now);
+
+    expect(agentRepoMock.getAgent).toHaveBeenCalledWith(SUB, AGENT_ID);
+    expect(runRepoMock.sumMonthCost).toHaveBeenCalledWith(AGENT_ID, now);
+    expect(spend).toEqual({ month: '2026-07', costUsd: 0.1234, runCount: 7 });
+  });
+
+  it('rejects agents the caller does not own before touching the run table', async () => {
+    agentRepoMock.getAgent.mockResolvedValue(null);
+    await expect(monthToDateSpend('someone-else', AGENT_ID)).rejects.toBeInstanceOf(
+      AgentNotFoundError,
+    );
+    expect(runRepoMock.sumMonthCost).not.toHaveBeenCalled();
   });
 });
 

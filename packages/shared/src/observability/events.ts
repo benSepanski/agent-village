@@ -30,6 +30,10 @@ export const LOG_EVENTS = [
   'sandbox.run.launched',
   'sandbox.run.launch_failed',
   'sandbox.run.finalized',
+  // Honest-cost reconciliation: the flat launch reservation is replaced by the
+  // task's actual-duration Fargate cost when it stops (Phase 3 step 06):
+  'sandbox.run.spend_reconciled',
+  'sandbox.run.reconcile_failed',
   'sandbox.run.grants_injected',
   'sandbox.run.grant_denied',
   // Run-duration watchdog (one-shot StopTask schedule armed by the launcher,

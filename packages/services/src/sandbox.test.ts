@@ -5,7 +5,7 @@ import { AssumeRoleCommand } from '@aws-sdk/client-sts';
 import type { Agent, ApplicationManifest } from '@agent-village/shared';
 
 const { grantSecretsMock } = vi.hoisted(() => ({
-  grantSecretsMock: { getNotionToken: vi.fn(), getGithubPat: vi.fn() },
+  grantSecretsMock: { getNotionToken: vi.fn(), getGithubPat: vi.fn(), getAgentSecret: vi.fn() },
 }));
 
 vi.mock('@agent-village/data', () => ({ grantSecrets: grantSecretsMock }));
@@ -62,8 +62,10 @@ beforeEach(() => {
   schedulerSend.mockReset().mockResolvedValue({});
   grantSecretsMock.getNotionToken.mockReset();
   grantSecretsMock.getGithubPat.mockReset();
+  grantSecretsMock.getAgentSecret.mockReset();
   grantSecretsMock.getNotionToken.mockResolvedValue('ntn-token');
   grantSecretsMock.getGithubPat.mockResolvedValue('ghp-token');
+  grantSecretsMock.getAgentSecret.mockResolvedValue('app-password');
   stsSend.mockResolvedValue({
     Credentials: { AccessKeyId: 'AK', SecretAccessKey: 'SK', SessionToken: 'ST' },
   });
@@ -229,6 +231,48 @@ describe('launchSandboxRun', () => {
     expect(env['GITHUB_REPOS']).toBe('acme/app');
     // STS env untouched.
     expect(env['AWS_SESSION_TOKEN']).toBe('ST');
+  });
+
+  it('resolves a generic secret grant under the agent prefix and injects the named env var', async () => {
+    await launchSandboxRun({
+      agent,
+      manifest: {
+        ...manifest,
+        grants: [{ kind: 'secret', name: 'gmail-app-password', env: 'GMAIL_APP_PASSWORD' }],
+      },
+      runId: RUN_ID,
+      gatewayToken: GATEWAY_TOKEN,
+    });
+    // The full name is DERIVED from the agent's own prefix — the manifest only
+    // carries the leaf, so it cannot point at another agent's secret.
+    expect(grantSecretsMock.getAgentSecret).toHaveBeenCalledWith(
+      `agent-village/dev/agents/${AGENT_ID}/gmail-app-password`,
+    );
+    const cmd = ecsSend.mock.calls[0]![0] as RunTaskCommand;
+    const app = cmd.input.overrides?.containerOverrides?.find((o) => o.name === 'app');
+    const env = Object.fromEntries((app?.environment ?? []).map((e) => [e.name, e.value]));
+    expect(env['GMAIL_APP_PASSWORD']).toBe('app-password');
+    // Platform env untouched.
+    expect(env['ANTHROPIC_API_KEY']).toBe(GATEWAY_TOKEN);
+    expect(env['AWS_SESSION_TOKEN']).toBe('ST');
+  });
+
+  it('refuses a secret grant naming a platform-managed leaf, even if one slipped past the schema', async () => {
+    // Defense in depth for ADR 0004: 'anthropic-key' lives under the agent's
+    // own prefix, so without this launch-time check a stored manifest could
+    // inject the real Anthropic key and bypass the metering gateway.
+    await expect(
+      launchSandboxRun({
+        agent,
+        manifest: {
+          ...manifest,
+          grants: [{ kind: 'secret', name: 'anthropic-key', env: 'STOLEN_KEY' }],
+        },
+        runId: RUN_ID,
+        gatewayToken: GATEWAY_TOKEN,
+      }),
+    ).rejects.toThrow(/platform-managed/);
+    expect(grantSecretsMock.getAgentSecret).not.toHaveBeenCalled();
   });
 
   it('narrows the STS session policy with SES From/Recipients conditions for an SesGrant', async () => {

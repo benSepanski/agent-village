@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   actualCost,
+  actualSandboxCost,
   estimateCost,
   estimateGatewayCall,
   estimateSandboxCost,
@@ -49,6 +50,36 @@ describe('estimateSandboxCost', () => {
 
   it('is more expensive for a larger task', () => {
     expect(estimateSandboxCost(30, 512, 1024)).toBeGreaterThan(estimateSandboxCost(30, 256, 512));
+  });
+});
+
+describe('actualSandboxCost', () => {
+  it('matches the flat estimate when the task ran its full window', () => {
+    // 30 min = 1_800_000 ms
+    expect(actualSandboxCost(1_800_000, 256, 512)).toBeCloseTo(
+      estimateSandboxCost(30, 256, 512),
+      9,
+    );
+  });
+
+  it('bills a fraction of the estimate for an early exit', () => {
+    // 3 min actual vs a 30 min reservation → one tenth of the flat cost.
+    expect(actualSandboxCost(180_000, 256, 512)).toBeCloseTo(
+      estimateSandboxCost(30, 256, 512) / 10,
+      9,
+    );
+  });
+
+  it("applies Fargate's one-minute minimum to instant exits", () => {
+    const oneMinute = estimateSandboxCost(1, 256, 512);
+    expect(actualSandboxCost(0, 256, 512)).toBeCloseTo(oneMinute, 9);
+    expect(actualSandboxCost(1_000, 256, 512)).toBeCloseTo(oneMinute, 9);
+  });
+
+  it('can exceed the flat estimate when the task outlived its timeout', () => {
+    expect(actualSandboxCost(3_600_000, 256, 512)).toBeGreaterThan(
+      estimateSandboxCost(30, 256, 512),
+    );
   });
 });
 
