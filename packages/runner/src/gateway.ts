@@ -54,16 +54,30 @@ const INTERNAL_ERROR_BODY = JSON.stringify({
 });
 const HTTP_INTERNAL_ERROR = 500;
 
-export async function handler(event: unknown): Promise<HttpResponse> {
+/** Time kept back from the Lambda deadline to refund + respond after an abort. */
+const DEADLINE_BUFFER_MS = 10_000;
+
+/** The one Lambda context member we need; optional so tests can omit it. */
+interface LambdaContext {
+  getRemainingTimeInMillis?: () => number;
+}
+
+export async function handler(event: unknown, context?: LambdaContext): Promise<HttpResponse> {
   try {
     const parsed = FunctionUrlEventSchema.parse(event);
     const headers = lowerCaseHeaders(parsed.headers);
+    const remainingMs = context?.getRemainingTimeInMillis?.();
     const res = await gateway.handleGatewayRequest({
       method: parsed.requestContext.http.method,
       path: parsed.rawPath,
       token: tokenFrom(headers),
       body: decodeBody(parsed.body, parsed.isBase64Encoded),
       headers,
+      // Abort upstream before the runtime kills this invocation — a mid-await
+      // death would leak the spend reservation (no out-of-band compensation).
+      ...(typeof remainingMs === 'number'
+        ? { deadlineMs: Date.now() + remainingMs - DEADLINE_BUFFER_MS }
+        : {}),
     });
     return { statusCode: res.status, headers: { 'content-type': res.contentType }, body: res.body };
   } catch (err) {

@@ -227,6 +227,10 @@ export class SandboxStack extends Stack {
       containerName: 'app',
       image: ContainerImage.fromEcrRepository(this.baseImageRepository, 'latest'),
       logging,
+      // Max Fargate SIGTERM→SIGKILL window: when the watchdog StopTask fires,
+      // the entrypoint's final `aws s3 sync` up must get a real chance to
+      // finish (the default 30s can truncate it mid-flight).
+      stopTimeout: Duration.seconds(120),
       environment: {
         AV_ENV: config.env,
         AV_REGION: config.region,

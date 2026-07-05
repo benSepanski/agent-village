@@ -95,6 +95,14 @@ vi.mock('@agent-village/data', async () => {
       }
       return Promise.resolve(structuredClone(run));
     },
+    // Conditional claim-and-clear, like runs.ts claimRunReservation: hands the
+    // reserved amount to exactly one caller.
+    claimRunReservation: (agentId: string, _createdAt: string, runId: string) => {
+      const run = getRun(agentId, runId) as unknown as Record<string, unknown>;
+      const prior = run['reservedUsd'];
+      run['reservedUsd'] = null;
+      return Promise.resolve(typeof prior === 'number' ? prior : null);
+    },
     // Atomic ADD semantics, like runs.ts addRunUsage.
     addRunUsage: (
       agentId: string,

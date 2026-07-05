@@ -8,7 +8,30 @@ describe('extractUsage (JSON body)', () => {
       content: [{ type: 'text', text: 'hi' }],
       usage: { input_tokens: 120, output_tokens: 45 },
     });
-    expect(extractUsage('application/json', body)).toEqual({ inputTokens: 120, outputTokens: 45 });
+    expect(extractUsage('application/json', body)).toEqual({
+      inputTokens: 120,
+      outputTokens: 45,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+    });
+  });
+
+  it('carries prompt-cache tokens (billed at 1.25x / 0.1x the input rate)', () => {
+    const body = JSON.stringify({
+      id: 'msg_x',
+      usage: {
+        input_tokens: 10,
+        output_tokens: 5,
+        cache_creation_input_tokens: 2048,
+        cache_read_input_tokens: 4096,
+      },
+    });
+    expect(extractUsage('application/json', body)).toEqual({
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheCreationInputTokens: 2048,
+      cacheReadInputTokens: 4096,
+    });
   });
 
   it('returns null for JSON without a usage block', () => {
@@ -22,7 +45,7 @@ describe('extractUsage (JSON body)', () => {
 
 const SSE_BODY = [
   'event: message_start',
-  `data: ${JSON.stringify({ type: 'message_start', message: { usage: { input_tokens: 33, output_tokens: 1 } } })}`,
+  `data: ${JSON.stringify({ type: 'message_start', message: { usage: { input_tokens: 33, output_tokens: 1, cache_creation_input_tokens: 7, cache_read_input_tokens: 11 } } })}`,
   '',
   'event: content_block_delta',
   `data: ${JSON.stringify({ type: 'content_block_delta', delta: { text: 'hi' } })}`,
@@ -39,10 +62,12 @@ const SSE_BODY = [
 ].join('\n');
 
 describe('extractUsage (buffered SSE stream)', () => {
-  it('takes input from message_start and the LAST cumulative message_delta output', () => {
+  it('takes input (and cache tokens) from message_start and the LAST cumulative message_delta output', () => {
     expect(extractUsage('text/event-stream; charset=utf-8', SSE_BODY)).toEqual({
       inputTokens: 33,
       outputTokens: 57,
+      cacheCreationInputTokens: 7,
+      cacheReadInputTokens: 11,
     });
   });
 
@@ -53,6 +78,11 @@ describe('extractUsage (buffered SSE stream)', () => {
 
   it('survives malformed data lines', () => {
     const noisy = `data: {not json}\n${SSE_BODY}`;
-    expect(extractUsage('text/event-stream', noisy)).toEqual({ inputTokens: 33, outputTokens: 57 });
+    expect(extractUsage('text/event-stream', noisy)).toEqual({
+      inputTokens: 33,
+      outputTokens: 57,
+      cacheCreationInputTokens: 7,
+      cacheReadInputTokens: 11,
+    });
   });
 });

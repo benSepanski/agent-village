@@ -230,6 +230,27 @@ describe('handleGatewayRequest — reserve → forward → reconcile', () => {
     });
   });
 
+  it('refunds and 502s instead of forwarding when the Lambda deadline is exhausted', async () => {
+    // An invocation killed mid-await would leak the reservation (no
+    // out-of-band compensation exists) — the deadline guard refunds inside
+    // the invocation instead.
+    const res = await handleGatewayRequest(request({ deadlineMs: Date.now() - 1 }));
+    expect(res.status).toBe(502);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(agentRepoMock.finalizeSpend).toHaveBeenCalledWith({
+      agentId: AGENT_ID,
+      ownerSub: SUB,
+      deltaUsd: -expectedEstimate,
+    });
+  });
+
+  it('passes an abort signal bounded by the deadline to the upstream fetch', async () => {
+    upstream(200, JSON.stringify({ usage: { input_tokens: 1, output_tokens: 1 } }));
+    await handleGatewayRequest(request({ deadlineMs: Date.now() + 60_000 }));
+    const init = fetchMock.mock.calls[0]![1] as { signal?: AbortSignal };
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it('keeps the reservation (no finalize) when a 2xx body has no parseable usage', async () => {
     upstream(200, '{"weird": true}');
     const res = await handleGatewayRequest(request());

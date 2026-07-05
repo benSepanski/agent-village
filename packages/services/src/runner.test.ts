@@ -17,7 +17,13 @@ const { agentRepoMock, runRepoMock, secretsMock, sandboxMock } = vi.hoisted(() =
     acquireActiveRun: vi.fn(),
     releaseActiveRun: vi.fn(),
   },
-  runRepoMock: { append: vi.fn(), getOne: vi.fn(), patchRun: vi.fn(), sumMonthCost: vi.fn() },
+  runRepoMock: {
+    append: vi.fn(),
+    getOne: vi.fn(),
+    patchRun: vi.fn(),
+    sumMonthCost: vi.fn(),
+    claimRunReservation: vi.fn(),
+  },
   secretsMock: { getAnthropicKey: vi.fn() },
   sandboxMock: { launchSandboxRun: vi.fn() },
 }));
@@ -270,16 +276,33 @@ describe('executeRun (sandbox)', () => {
     agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
     runRepoMock.append.mockResolvedValue(undefined);
     runRepoMock.patchRun.mockResolvedValue(undefined);
+    const RESERVED = 0.005;
+    runRepoMock.claimRunReservation.mockResolvedValue(RESERVED);
     sandboxMock.launchSandboxRun.mockRejectedValue(new Error('capacity'));
 
     await expect(executeRun({ agentId: AGENT_ID })).rejects.toThrow('capacity');
     const failPatch = runRepoMock.patchRun.mock.calls.find((c) => c[3].status === 'launch_failed');
     expect(failPatch).toBeDefined();
     // The refunded flat estimate must not linger as reported cost (month-to-date
-    // sums costUsd), and the nulled marker blocks a stray stop-event reconcile.
-    expect(failPatch![3]).toMatchObject({ costUsd: 0, reservedUsd: null });
+    // sums costUsd).
+    expect(failPatch![3]).toMatchObject({ costUsd: 0 });
     expect(agentRepoMock.releaseActiveRun).toHaveBeenCalled();
-    expect(agentRepoMock.finalizeSpend.mock.calls[0]![0].deltaUsd).toBeLessThan(0);
+    // The refund moves exactly the atomically claimed reservation.
+    expect(agentRepoMock.finalizeSpend.mock.calls[0]![0].deltaUsd).toBeCloseTo(-RESERVED, 9);
+  });
+
+  it('skips the launch-failure refund when the stop event already claimed the reservation', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(sandboxAgent);
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    agentRepoMock.acquireActiveRun.mockResolvedValue(undefined);
+    agentRepoMock.releaseActiveRun.mockResolvedValue(undefined);
+    runRepoMock.append.mockResolvedValue(undefined);
+    runRepoMock.patchRun.mockResolvedValue(undefined);
+    runRepoMock.claimRunReservation.mockResolvedValue(null); // finalize won the race
+    sandboxMock.launchSandboxRun.mockRejectedValue(new Error('capacity'));
+
+    await expect(executeRun({ agentId: AGENT_ID })).rejects.toThrow('capacity');
+    expect(agentRepoMock.finalizeSpend).not.toHaveBeenCalled();
   });
 
   it('records spend_limit_exceeded without acquiring the slot or launching', async () => {

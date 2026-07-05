@@ -125,6 +125,39 @@ export async function patchRun(
   }
 }
 
+/**
+ * Atomically claim (and clear) a run's compute-spend reservation. Returns the
+ * reserved amount exactly once — every later (or concurrent) claim returns
+ * null. EventBridge stop events are at-least-once and may be processed
+ * concurrently, and a launch-failure refund can race the stop event of the
+ * aborted task; the conditional write makes whichever settlement path wins the
+ * only one that applies money.
+ */
+export async function claimRunReservation(
+  agentId: AgentId,
+  createdAt: string,
+  runId: RunId,
+): Promise<number | null> {
+  const { tableName } = getConfig();
+  try {
+    const res = await getDocumentClient().send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: { pk: agentPk(agentId), sk: runSk(createdAt, runId) },
+        UpdateExpression: 'SET reservedUsd = :nul',
+        ConditionExpression: 'attribute_exists(pk) AND attribute_type(reservedUsd, :num)',
+        ExpressionAttributeValues: { ':nul': null, ':num': 'N' },
+        ReturnValues: 'UPDATED_OLD',
+      }),
+    );
+    const prior = res.Attributes?.['reservedUsd'];
+    return typeof prior === 'number' ? prior : null;
+  } catch (err) {
+    if (isConditionalCheckFailed(err)) return null; // already claimed (or never reserved)
+    throw err;
+  }
+}
+
 export interface RunUsageDelta {
   costUsd: number;
   tokensIn: number;

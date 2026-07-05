@@ -30,13 +30,26 @@ export function estimateCost(model: AnthropicModel, maxOutputTokens: number): nu
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  /** `cache_creation_input_tokens` — billed at 1.25x the input rate. */
+  cacheCreationInputTokens?: number;
+  /** `cache_read_input_tokens` — billed at 0.1x the input rate. */
+  cacheReadInputTokens?: number;
 }
+
+// Anthropic prompt-caching multipliers on the input rate.
+const CACHE_WRITE_INPUT_MULTIPLIER = 1.25;
+const CACHE_READ_INPUT_MULTIPLIER = 0.1;
 
 /** Actual cost of a completed call given usage from the Anthropic response. */
 export function actualCost(model: AnthropicModel, usage: TokenUsage): number {
   const price = PRICING[model];
+  const cacheWrite = usage.cacheCreationInputTokens ?? 0;
+  const cacheRead = usage.cacheReadInputTokens ?? 0;
   return (
-    (usage.inputTokens * price.inputPerMtok + usage.outputTokens * price.outputPerMtok) /
+    (usage.inputTokens * price.inputPerMtok +
+      cacheWrite * price.inputPerMtok * CACHE_WRITE_INPUT_MULTIPLIER +
+      cacheRead * price.inputPerMtok * CACHE_READ_INPUT_MULTIPLIER +
+      usage.outputTokens * price.outputPerMtok) /
     ONE_MILLION
   );
 }

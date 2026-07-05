@@ -70,32 +70,69 @@ function runMeta(run: RunDetail): string {
   ]);
 }
 
-interface DrainResult {
-  status: string;
-  /** Exclusive start time for the next poll: last seen event + 1ms. */
-  nextStart: number;
+/**
+ * Poll position. `startTime` is INCLUSIVE — the next poll restarts AT the last
+ * seen timestamp rather than one past it, because CloudWatch can surface more
+ * events in that same millisecond on a later poll and an exclusive cursor
+ * would silently drop them. `boundaryKeys` are the already-printed events at
+ * that timestamp, skipped on reprint.
+ */
+interface LogCursor {
+  startTime: number;
+  boundaryKeys: ReadonlySet<string>;
 }
 
-/** Fetch and emit every available page from `startTime` onward. */
+const initialCursor = (): LogCursor => ({ startTime: 0, boundaryKeys: new Set() });
+
+interface DrainResult {
+  status: string;
+  cursor: LogCursor;
+}
+
+const eventKey = (e: RunLogEvent): string => `${e.at}|${e.source}|${e.message}`;
+
+/** Emit events not already printed under `cursor`; return the advanced cursor. */
+function emitNewEvents(
+  events: RunLogEvent[],
+  cursor: LogCursor,
+  write: (chunk: string) => void,
+): LogCursor {
+  let { startTime } = cursor;
+  let boundaryKeys = new Set(cursor.boundaryKeys);
+  for (const e of events) {
+    const ts = Date.parse(e.at);
+    const key = eventKey(e);
+    if (ts === startTime && boundaryKeys.has(key)) continue; // reprinted boundary event
+    write(`${formatEvent(e)}\n`);
+    if (ts > startTime) {
+      startTime = ts;
+      boundaryKeys = new Set([key]);
+    } else if (ts === startTime) {
+      boundaryKeys.add(key);
+    }
+  }
+  return { startTime, boundaryKeys };
+}
+
+/** Fetch and emit every available page from the cursor onward. */
 async function drainOnce(
   c: ApiClient,
   ids: { agentId: string; runId: string },
-  startTime: number,
+  cursor: LogCursor,
   write: (chunk: string) => void,
 ): Promise<DrainResult> {
   let token: string | undefined;
   let status = 'running';
-  let nextStart = startTime;
+  let next = cursor;
   do {
-    const page = await c.get<RunLogsPage>(logsPath(ids.agentId, ids.runId, startTime, token));
+    const page = await c.get<RunLogsPage>(
+      logsPath(ids.agentId, ids.runId, cursor.startTime, token),
+    );
     status = page.runStatus;
-    for (const e of page.events) {
-      write(`${formatEvent(e)}\n`);
-      nextStart = Math.max(nextStart, Date.parse(e.at) + 1);
-    }
+    next = emitNewEvents(page.events, next, write);
     token = page.nextToken ?? undefined;
   } while (token);
-  return { status, nextStart };
+  return { status, cursor: next };
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -105,11 +142,18 @@ async function followLogs(
   ids: { agentId: string; runId: string },
   opts: { pollMs: number; write: (chunk: string) => void },
 ): Promise<string> {
-  let startTime = 0;
+  let cursor = initialCursor();
   for (;;) {
-    const { status, nextStart } = await drainOnce(c, ids, startTime, opts.write);
-    startTime = nextStart;
-    if (TERMINAL_STATUSES.has(status)) return status;
+    const { status, cursor: advanced } = await drainOnce(c, ids, cursor, opts.write);
+    cursor = advanced;
+    if (TERMINAL_STATUSES.has(status)) {
+      // The run just ended, but its last lines (final output, sync_up, exit)
+      // may still be in CloudWatch's ingestion pipeline — settle, then drain
+      // once more before exiting.
+      await sleep(opts.pollMs);
+      await drainOnce(c, ids, cursor, opts.write);
+      return status;
+    }
     await sleep(opts.pollMs);
   }
 }
@@ -134,7 +178,12 @@ export async function logs(
   }
   const body = run.error ? `error: ${run.error}` : `output:\n${run.output ?? '(empty)'}`;
   const lines: string[] = [];
-  await drainOnce(c, { agentId, runId }, 0, (chunk) => void lines.push(chunk.trimEnd()));
+  await drainOnce(
+    c,
+    { agentId, runId },
+    initialCursor(),
+    (chunk) => void lines.push(chunk.trimEnd()),
+  );
   const logBlock = lines.length ? `\n\nlogs:\n${lines.join('\n')}` : '';
   return `${meta}\n\n${body}${logBlock}`;
 }

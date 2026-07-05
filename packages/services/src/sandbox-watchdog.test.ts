@@ -42,8 +42,8 @@ describe('armRunWatchdog', () => {
     expect(cmd).toBeInstanceOf(CreateScheduleCommand);
     expect(cmd.input.Name).toBe(`run-watchdog-${RUN_ID}`);
     expect(cmd.input.GroupName).toBe(WATCHDOG_ENV.AV_WATCHDOG_GROUP);
-    // 30 min timeout + 2 min grace.
-    expect(cmd.input.ScheduleExpression).toBe('at(2026-07-03T10:32:00)');
+    // 30 min timeout + 5 min grace (grace absorbs Fargate startup + final sync).
+    expect(cmd.input.ScheduleExpression).toBe('at(2026-07-03T10:35:00)');
     expect(cmd.input.ActionAfterCompletion).toBe('DELETE');
     expect(cmd.input.Target?.Arn).toBe('arn:aws:scheduler:::aws-sdk:ecs:stopTask');
     expect(cmd.input.Target?.RoleArn).toBe(WATCHDOG_ENV.AV_WATCHDOG_ROLE_ARN);

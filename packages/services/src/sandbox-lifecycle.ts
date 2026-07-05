@@ -68,8 +68,28 @@ function terminalEvents(existing: Run, input: FinalizeSandboxRunInput): RunEvent
  * (safe direction for a spend cap).
  */
 async function reconcileComputeSpend(existing: Run, durationMs: number): Promise<void> {
-  const reservedUsd = existing.reservedUsd;
-  if (typeof reservedUsd !== 'number') return; // inline/legacy run, or already reconciled
+  // Claim the reservation atomically. A read-then-write marker is not enough:
+  // EventBridge stop events are at-least-once and can be processed
+  // CONCURRENTLY, and both deliveries would read the same pre-patch snapshot
+  // and double-apply the delta. The conditional claim hands the reserved
+  // amount to exactly one caller.
+  let reservedUsd: number | null;
+  try {
+    reservedUsd = await runRepo.claimRunReservation(
+      existing.agentId,
+      existing.createdAt,
+      existing.id,
+    );
+  } catch (err) {
+    logger.error({
+      event: 'sandbox.run.reconcile_failed',
+      agentId: existing.agentId,
+      runId: existing.id,
+      err,
+    });
+    return;
+  }
+  if (reservedUsd === null) return; // inline/legacy run, or another settlement won
   const { cpu, memMb } = sandboxTaskSize();
   const actualUsd = actualSandboxCost(durationMs, cpu, memMb);
   const deltaUsd = actualUsd - reservedUsd;
@@ -144,9 +164,8 @@ export async function finalizeSandboxRun(input: FinalizeSandboxRunInput): Promis
     status,
     durationMs: input.durationMs,
     exitCode: input.exitCode,
-    // Null the reconciliation marker first: a redelivered stop event (EventBridge
-    // is at-least-once) re-reads the run and skips the spend delta below.
-    reservedUsd: null,
+    // reservedUsd is NOT nulled here — reconcileComputeSpend claims it with a
+    // conditional write so concurrent redeliveries settle exactly once.
     events: terminalEvents(existing, input),
     ...(breached
       ? {}

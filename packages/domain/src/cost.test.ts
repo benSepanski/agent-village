@@ -32,6 +32,17 @@ describe('actualCost', () => {
   it('is zero for zero usage', () => {
     expect(actualCost('claude-opus-4-7', { inputTokens: 0, outputTokens: 0 })).toBe(0);
   });
+
+  it('bills prompt-cache tokens at 1.25x (write) and 0.1x (read) the input rate', () => {
+    // Sonnet: $3/Mtok in. 1M cache-write -> $3.75; 1M cache-read -> $0.30.
+    const cost = actualCost('claude-sonnet-4-6', {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 1_000_000,
+      cacheReadInputTokens: 1_000_000,
+    });
+    expect(cost).toBeCloseTo(3.75 + 0.3, 6);
+  });
 });
 
 describe('estimateSandboxCost', () => {

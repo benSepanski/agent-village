@@ -163,11 +163,8 @@ async function onLaunchFailure(
   await runRepo.patchRun(agent.id, run.createdAt, ctx.runId, {
     status: 'launch_failed',
     error: errMessage,
-    // The reservation is refunded below — null the marker so a stray task-stop
-    // event for a half-launched task cannot reconcile (i.e. refund) it again,
-    // and zero the flat estimate so the run doesn't report cost that was
-    // refunded (month-to-date sums costUsd).
-    reservedUsd: null,
+    // Zero the flat estimate so the run doesn't report cost that was refunded
+    // (month-to-date sums costUsd).
     costUsd: 0,
     events: [...run.events, { event: 'sandbox.run.launch_failed', at: new Date().toISOString() }],
   });
@@ -176,7 +173,10 @@ async function onLaunchFailure(
     ownerSub: agent.ownerSub,
     runId: ctx.runId,
   });
-  await refund(ctx, agent, run.costUsd);
+  // Claim the reservation atomically: the stop event of a half-launched task
+  // can race this path, and only one settlement may move money.
+  const reservedUsd = await runRepo.claimRunReservation(agent.id, run.createdAt, ctx.runId);
+  if (reservedUsd !== null) await refund(ctx, agent, reservedUsd);
   logger.error({
     event: 'sandbox.run.launch_failed',
     ...runLog(ctx),

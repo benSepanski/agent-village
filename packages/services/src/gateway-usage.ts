@@ -9,8 +9,16 @@ import type { TokenUsage } from '@agent-village/domain';
  * cumulative `output_tokens`.
  */
 
+// Cache tokens are billed too (write 1.25x, read 0.1x input rate) — ignoring
+// them would under-count real Anthropic billing, the unsafe direction for a
+// spend cap.
+const CacheTokensSchema = z.object({
+  cache_creation_input_tokens: z.number().int().nonnegative().optional(),
+  cache_read_input_tokens: z.number().int().nonnegative().optional(),
+});
+
 const JsonUsageSchema = z.object({
-  usage: z.object({
+  usage: CacheTokensSchema.extend({
     input_tokens: z.number().int().nonnegative(),
     output_tokens: z.number().int().nonnegative(),
   }),
@@ -18,7 +26,9 @@ const JsonUsageSchema = z.object({
 
 const MessageStartSchema = z.object({
   type: z.literal('message_start'),
-  message: z.object({ usage: z.object({ input_tokens: z.number().int().nonnegative() }) }),
+  message: z.object({
+    usage: CacheTokensSchema.extend({ input_tokens: z.number().int().nonnegative() }),
+  }),
 });
 
 const MessageDeltaSchema = z.object({
@@ -40,24 +50,33 @@ function extractJsonUsage(body: string): TokenUsage | null {
   return {
     inputTokens: parsed.data.usage.input_tokens,
     outputTokens: parsed.data.usage.output_tokens,
+    cacheCreationInputTokens: parsed.data.usage.cache_creation_input_tokens ?? 0,
+    cacheReadInputTokens: parsed.data.usage.cache_read_input_tokens ?? 0,
   };
 }
 
 const SSE_DATA_PREFIX = 'data:';
 
+type StartUsage = z.infer<typeof MessageStartSchema>['message']['usage'];
+
 function extractSseUsage(body: string): TokenUsage | null {
-  let inputTokens: number | null = null;
+  let start: StartUsage | null = null;
   let outputTokens: number | null = null;
   for (const line of body.split('\n')) {
     if (!line.startsWith(SSE_DATA_PREFIX)) continue;
     const event = safeJson(line.slice(SSE_DATA_PREFIX.length).trim());
-    const start = MessageStartSchema.safeParse(event);
-    if (start.success) inputTokens = start.data.message.usage.input_tokens;
+    const parsedStart = MessageStartSchema.safeParse(event);
+    if (parsedStart.success) start = parsedStart.data.message.usage;
     const delta = MessageDeltaSchema.safeParse(event);
     if (delta.success) outputTokens = delta.data.usage.output_tokens;
   }
-  if (inputTokens === null || outputTokens === null) return null;
-  return { inputTokens, outputTokens };
+  if (start === null || outputTokens === null) return null;
+  return {
+    inputTokens: start.input_tokens,
+    outputTokens,
+    cacheCreationInputTokens: start.cache_creation_input_tokens ?? 0,
+    cacheReadInputTokens: start.cache_read_input_tokens ?? 0,
+  };
 }
 
 /** Returns null when no usage can be recovered (caller keeps the reservation). */

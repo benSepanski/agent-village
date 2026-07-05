@@ -13,8 +13,17 @@ import { getSchedulerClient } from './scheduling.js';
  * defense — this schedule is the platform-side backstop for a wedged task.
  */
 
-/** Extra minutes past manifest.timeoutMinutes before the platform-side StopTask fires. */
-export const WATCHDOG_GRACE_MINUTES = 2;
+/**
+ * Extra minutes past manifest.timeoutMinutes before the platform-side StopTask
+ * fires. The schedule is anchored at RunTask time, but the app's own `timeout`
+ * budget only starts after Fargate provisioning, the image pull, and the
+ * entrypoint's workspace sync-down — the grace must absorb that startup
+ * overhead plus the final sync-up, or a run inside its app-time budget gets
+ * killed (and its workspace sync cut mid-flight). 5 minutes covers observed
+ * Fargate cold starts with margin; the compute reservation is reconciled to
+ * actual duration at stop, so the wider window costs nothing when unused.
+ */
+export const WATCHDOG_GRACE_MINUTES = 5;
 const MS_PER_MINUTE = 60_000;
 /** ISO-8601 without milliseconds or zone, the `at(...)` format Scheduler expects (UTC). */
 const AT_EXPRESSION_LENGTH = 19;

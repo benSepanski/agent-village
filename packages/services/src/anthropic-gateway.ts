@@ -43,6 +43,13 @@ export interface GatewayRequest {
   body: string;
   /** Lower-cased request headers. */
   headers: Record<string, string>;
+  /**
+   * Absolute epoch ms after which the upstream call must be aborted (the
+   * Lambda deadline minus a settle buffer). Without it, an invocation killed
+   * mid-await leaks the reservation: reserveSpend is a bare counter ADD whose
+   * only compensations run inside this same invocation.
+   */
+  deadlineMs?: number;
 }
 
 export interface GatewayResponse {
@@ -59,7 +66,7 @@ export interface UpstreamResponse {
 }
 export type GatewayFetch = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body: string },
+  init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
 ) => Promise<UpstreamResponse>;
 
 let fetchOverride: GatewayFetch | undefined;
@@ -198,11 +205,22 @@ async function forwardToAnthropic(req: GatewayRequest, apiKey: string): Promise<
     const value = req.headers[name];
     if (value !== undefined) headers[name] = value;
   }
+  // Abort before the Lambda deadline so the reservation is refunded inside
+  // this invocation instead of leaking when the runtime kills us mid-await
+  // (long generations can outlive the function timeout). The thrown abort is
+  // handled by forwardAndReconcile's refund path.
+  let signal: AbortSignal | undefined;
+  if (req.deadlineMs !== undefined) {
+    const budgetMs = req.deadlineMs - Date.now();
+    if (budgetMs <= 0) throw new Error('gateway deadline exhausted before upstream call');
+    signal = AbortSignal.timeout(budgetMs);
+  }
   const doFetch: GatewayFetch = fetchOverride ?? ((url, init) => fetch(url, init));
   const res = await doFetch(`${ANTHROPIC_UPSTREAM}${MESSAGES_PATH}`, {
     method: 'POST',
     headers,
     body: req.body,
+    ...(signal ? { signal } : {}),
   });
   return {
     status: res.status,

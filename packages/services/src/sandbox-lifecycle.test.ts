@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { agentRepoMock, runRepoMock, watchdogMock } = vi.hoisted(() => ({
   agentRepoMock: { releaseActiveRun: vi.fn(), finalizeSpend: vi.fn() },
-  runRepoMock: { getOne: vi.fn(), patchRun: vi.fn(), addRunUsage: vi.fn() },
+  runRepoMock: {
+    getOne: vi.fn(),
+    patchRun: vi.fn(),
+    addRunUsage: vi.fn(),
+    claimRunReservation: vi.fn(),
+  },
   watchdogMock: { deleteRunWatchdog: vi.fn() },
 }));
 
@@ -36,6 +41,7 @@ beforeEach(() => {
   runRepoMock.getOne.mockReset().mockResolvedValue(existing);
   runRepoMock.patchRun.mockReset().mockResolvedValue(undefined);
   runRepoMock.addRunUsage.mockReset().mockResolvedValue(undefined);
+  runRepoMock.claimRunReservation.mockReset().mockResolvedValue(null);
   watchdogMock.deleteRunWatchdog.mockReset().mockResolvedValue(undefined);
   delete process.env['AV_SANDBOX_CPU'];
   delete process.env['AV_SANDBOX_MEMORY'];
@@ -192,6 +198,8 @@ describe('finalizeSandboxRun — compute-spend reconciliation', () => {
 
   beforeEach(() => {
     runRepoMock.getOne.mockResolvedValue({ ...existing, reservedUsd: RESERVED });
+    // The reservation is handed out by the atomic claim, not the snapshot.
+    runRepoMock.claimRunReservation.mockResolvedValue(RESERVED);
   });
 
   it('finalizes the agent ledger with actual − reserved and shifts the run costUsd', async () => {
@@ -213,29 +221,36 @@ describe('finalizeSandboxRun — compute-spend reconciliation', () => {
     expect(usage[3]).toMatchObject({ tokensIn: 0, tokensOut: 0 });
   });
 
-  it('nulls the reservation marker in the terminal patch (idempotency under redelivery)', async () => {
+  it('settles the reservation via the atomic claim, never via the terminal patch', async () => {
+    // A read-then-write marker would double-apply the delta when two stop-event
+    // deliveries run concurrently; the conditional claim is the only settler.
     await finalizeSandboxRun({
       agentId: AGENT_ID,
       runId: RUN_ID,
       exitCode: 0,
       durationMs: DURATION_MS,
     });
-    expect(runRepoMock.patchRun.mock.calls[0]![3]).toMatchObject({ reservedUsd: null });
+    expect(runRepoMock.claimRunReservation).toHaveBeenCalledWith(
+      AGENT_ID,
+      existing.createdAt,
+      RUN_ID,
+    );
+    expect(runRepoMock.patchRun.mock.calls[0]![3]).not.toHaveProperty('reservedUsd');
   });
 
-  it('skips reconciliation when the marker is already null (redelivered stop event)', async () => {
-    runRepoMock.getOne.mockResolvedValue({ ...existing, reservedUsd: null });
+  it('skips reconciliation when the claim loses (redelivered or concurrent stop event)', async () => {
+    runRepoMock.claimRunReservation.mockResolvedValue(null);
     await finalizeSandboxRun({ agentId: AGENT_ID, runId: RUN_ID, exitCode: 0, durationMs: 500 });
     expect(agentRepoMock.finalizeSpend).not.toHaveBeenCalled();
     expect(runRepoMock.addRunUsage).not.toHaveBeenCalled();
     expect(agentRepoMock.releaseActiveRun).toHaveBeenCalled();
   });
 
-  it('skips reconciliation for legacy runs without the field', async () => {
-    const { reservedUsd: _omitted, ...legacy } = existing;
-    runRepoMock.getOne.mockResolvedValue(legacy);
+  it('still finalizes the run when the claim itself fails', async () => {
+    runRepoMock.claimRunReservation.mockRejectedValue(new Error('dynamo down'));
     await finalizeSandboxRun({ agentId: AGENT_ID, runId: RUN_ID, exitCode: 0, durationMs: 500 });
     expect(agentRepoMock.finalizeSpend).not.toHaveBeenCalled();
+    expect(agentRepoMock.releaseActiveRun).toHaveBeenCalled();
   });
 
   it('charges more than reserved when the task outlived its priced window', async () => {
@@ -270,7 +285,6 @@ describe('finalizeSandboxRun — compute-spend reconciliation', () => {
     expect(agentRepoMock.finalizeSpend).toHaveBeenCalledTimes(1);
     expect(runRepoMock.patchRun.mock.calls[0]![3]).toMatchObject({
       status: 'spend_limit_exceeded',
-      reservedUsd: null,
     });
   });
 
