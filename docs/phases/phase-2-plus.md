@@ -33,6 +33,8 @@ them first:
   layer but no user-facing command wires it; all grant secrets (typed and
   generic) are provisioned out-of-band with the AWS CLI today.
 - **Gateway model pricing table** — the metering gateway 400s model ids it
-  cannot price; keeping the priced set current is a recurring chore.
+  cannot price; keeping the priced set current is a recurring chore (last
+  refreshed 2026-07: Fable 5 / Opus 4.8 / Sonnet 5 / Haiku 4.5 added, Opus 4.7
+  and Haiku prices corrected to public list).
 
 Each phase reuses the harness from Phase 0. No new top-level concerns unless an [ADR](../adr/README.md) justifies it.

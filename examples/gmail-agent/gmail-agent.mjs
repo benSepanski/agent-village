@@ -44,7 +44,7 @@ const SMTP_HOST = 'smtp.gmail.com';
 const SMTP_PORT = 465;
 // Most capable model priced by the platform's metering gateway (the gateway
 // rejects model ids it cannot price — see services/anthropic-gateway.ts).
-const DEFAULT_MODEL = 'claude-opus-4-7';
+const DEFAULT_MODEL = 'claude-opus-4-8';
 const MAX_REPLY_TOKENS = 1024;
 const BODY_CHAR_LIMIT = 4000;
 const DEFAULT_MAX_REPLIES = 5;

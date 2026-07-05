@@ -7,12 +7,18 @@ export interface ModelPricing {
   outputPerMtok: number;
 }
 
-// Public-list pricing approximations. Update when a new model is supported or
-// Anthropic adjusts prices.
+// Public-list pricing (per docs.anthropic.com as of 2026-06). Update when a
+// new model is supported or Anthropic adjusts prices; every id in
+// ANTHROPIC_MODELS (shared agent schema) must have a row here or the metering
+// gateway 400s it.
 const PRICING: Record<AnthropicModel, ModelPricing> = {
-  'claude-opus-4-7': { inputPerMtok: 15, outputPerMtok: 75 },
+  'claude-fable-5': { inputPerMtok: 10, outputPerMtok: 50 },
+  'claude-opus-4-8': { inputPerMtok: 5, outputPerMtok: 25 },
+  'claude-opus-4-7': { inputPerMtok: 5, outputPerMtok: 25 },
+  'claude-sonnet-5': { inputPerMtok: 3, outputPerMtok: 15 },
   'claude-sonnet-4-6': { inputPerMtok: 3, outputPerMtok: 15 },
-  'claude-haiku-4-5-20251001': { inputPerMtok: 0.8, outputPerMtok: 4 },
+  'claude-haiku-4-5': { inputPerMtok: 1, outputPerMtok: 5 },
+  'claude-haiku-4-5-20251001': { inputPerMtok: 1, outputPerMtok: 5 },
 };
 
 const ONE_MILLION = 1_000_000;

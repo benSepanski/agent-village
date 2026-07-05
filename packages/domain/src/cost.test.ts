@@ -10,8 +10,8 @@ import {
 
 describe('estimateCost', () => {
   it('uses output pricing for the given model and max-tokens cap', () => {
-    // Opus output is $75/Mtok; 1000 tokens = $0.075
-    expect(estimateCost('claude-opus-4-7', 1000)).toBeCloseTo(0.075, 6);
+    // Opus output is $25/Mtok; 1000 tokens = $0.025
+    expect(estimateCost('claude-opus-4-7', 1000)).toBeCloseTo(0.025, 6);
   });
 
   it('is cheaper for haiku than opus at the same cap', () => {

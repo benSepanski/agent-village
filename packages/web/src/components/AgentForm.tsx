@@ -26,7 +26,7 @@ interface FormState {
 function toFormState(initial: Partial<CreateAgentInputType> | undefined): FormState {
   return {
     name: initial?.name ?? '',
-    model: initial?.model ?? 'claude-opus-4-7',
+    model: initial?.model ?? 'claude-opus-4-8',
     systemPrompt: initial?.systemPrompt ?? '',
     schedule: initial?.schedule ?? '',
     spendLimitUsd: initial?.spendLimitUsd === undefined ? '1' : String(initial.spendLimitUsd),

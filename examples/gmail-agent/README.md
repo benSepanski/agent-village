@@ -144,7 +144,7 @@ through the metered gateway, and sends it.
 | `GMAIL_ADDRESS`         | secret grant        | The agent's Gmail address (IMAP/SMTP login).                                      |
 | `GMAIL_APP_PASSWORD`    | secret grant        | The 16-char app password.                                                         |
 | `GMAIL_ALLOWED_SENDERS` | secret grant        | Comma-separated addresses that may get replies.                                   |
-| `GMAIL_AGENT_MODEL`     | optional            | Model id; default `claude-opus-4-7`. Must be a model the metering gateway prices. |
+| `GMAIL_AGENT_MODEL`     | optional            | Model id; default `claude-opus-4-8`. Must be a model the metering gateway prices. |
 | `GMAIL_MAX_REPLIES`     | optional            | Reply cap per run; default 5.                                                     |
 | `AV_WORKSPACE_DIR`      | platform / optional | Workspace dir; defaults to `/workspace`.                                          |
 
@@ -156,7 +156,8 @@ State lives at `<workspace>/gmail-agent/state.json`
 - **Implicit TLS only** — the egress proxy cannot carry STARTTLS
   (SMTP 587 / IMAP 143); Gmail's 465/993 implicit-TLS ports are used instead.
 - **Model set** — the metering gateway only prices the platform's supported
-  model ids (`claude-opus-4-7`, `claude-sonnet-4-6`,
+  model ids (`claude-fable-5`, `claude-opus-4-8`, `claude-opus-4-7`,
+  `claude-sonnet-5`, `claude-sonnet-4-6`, `claude-haiku-4-5`,
   `claude-haiku-4-5-20251001`); other ids are rejected with a 400.
 - **Non-secret config rides secret grants** — the manifest has no plain env
   mechanism, so `gmail-address` / `gmail-allowed-senders` are stored as

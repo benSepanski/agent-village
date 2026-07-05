@@ -137,7 +137,7 @@ The step list is the Phase-2 audit's platform gaps, ordered safety-first:
   since the watermark only becomes durable at the entrypoint's S3 sync. The
   Anthropic SDK needed zero configuration beyond the platform-injected
   `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY`; the model defaults to
-  `claude-opus-4-7` because the gateway rejects ids it cannot price. Grants:
+  `claude-opus-4-8` because the gateway rejects ids it cannot price. Grants:
   three generic `secret` grants — the app password plus `gmail-address` and
   `gmail-allowed-senders`, since the manifest has no plain-env field
   (non-secret config rides the secret mechanism; noted as a platform gap).
