@@ -112,11 +112,12 @@ describe('ToolGrant', () => {
 });
 
 describe('ApplicationManifest', () => {
-  it('applies defaults for timeout, egress, grants, and flush interval', () => {
+  it('applies defaults for timeout, egress, grants, env, and flush interval', () => {
     const parsed = ApplicationManifest.parse(validManifest);
     expect(parsed.timeoutMinutes).toBe(30);
     expect(parsed.egressAllow).toEqual([]);
     expect(parsed.grants).toEqual([]);
+    expect(parsed.env).toEqual({});
     expect(parsed.flushIntervalSeconds).toBe(300);
   });
 
@@ -157,6 +158,54 @@ describe('ApplicationManifest', () => {
         ],
       }),
     ).toThrow(/duplicate secret grant env var/);
+  });
+
+  it('accepts a plain env map with UPPER_SNAKE_CASE keys', () => {
+    const parsed = ApplicationManifest.parse({
+      ...validManifest,
+      env: { GMAIL_ADDRESS: 'agent@example.com', GMAIL_MAX_REPLIES: '3' },
+    });
+    expect(parsed.env).toEqual({ GMAIL_ADDRESS: 'agent@example.com', GMAIL_MAX_REPLIES: '3' });
+  });
+
+  it('rejects env keys that are malformed or platform-reserved', () => {
+    for (const key of [
+      'gmail_address', // lowercase
+      'MY-VAR', // hyphen
+      'AV_WORKSPACE_URI', // platform contract prefix
+      'ANTHROPIC_API_KEY', // metering gateway prefix
+      'AWS_SECRET_ACCESS_KEY', // scoped STS creds prefix
+      'NOTION_TOKEN', // typed-grant name
+      'PATH', // entrypoint runtime var
+      'HTTPS_PROXY', // deliberately unset (ADR 0003)
+    ]) {
+      expect(
+        () => ApplicationManifest.parse({ ...validManifest, env: { [key]: 'v' } }),
+        key,
+      ).toThrow();
+    }
+  });
+
+  it('rejects empty and oversized env values', () => {
+    expect(() => ApplicationManifest.parse({ ...validManifest, env: { A: '' } })).toThrow();
+    expect(() =>
+      ApplicationManifest.parse({ ...validManifest, env: { A: 'x'.repeat(2049) } }),
+    ).toThrow();
+  });
+
+  it('rejects an env map with more than 20 entries', () => {
+    const env = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`VAR_${String(i)}`, 'v']));
+    expect(() => ApplicationManifest.parse({ ...validManifest, env })).toThrow(/at most 20/);
+  });
+
+  it('rejects an env key that collides with a secret grant env var', () => {
+    expect(() =>
+      ApplicationManifest.parse({
+        ...validManifest,
+        env: { GMAIL_APP_PASSWORD: 'not-actually-secret' },
+        grants: [{ kind: 'secret', name: 'gmail-app-password', env: 'GMAIL_APP_PASSWORD' }],
+      }),
+    ).toThrow(/collides with a secret grant env var/);
   });
 
   it('rejects an empty command array and out-of-bounds timeouts', () => {

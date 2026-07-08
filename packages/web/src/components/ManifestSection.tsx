@@ -36,6 +36,22 @@ function GrantRow({ grant }: { grant: ToolGrant }) {
   );
 }
 
+function EnvList({ env }: { env: Record<string, string> }) {
+  const entries = Object.entries(env);
+  if (entries.length === 0) return <p>No env vars.</p>;
+  return (
+    <ul>
+      {entries.map(([name, value]) => (
+        <li key={name}>
+          <code>
+            {name}={value}
+          </code>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function ManifestSection({ agent }: { agent: Agent }) {
   const { manifest } = agent;
   if (!manifest) {
@@ -59,6 +75,8 @@ export function ManifestSection({ agent }: { agent: Agent }) {
         <dt>flushIntervalSeconds</dt>
         <dd>{manifest.flushIntervalSeconds}</dd>
       </dl>
+      <h4>Env</h4>
+      <EnvList env={manifest.env} />
       <h4>Egress allow-list</h4>
       {manifest.egressAllow.length === 0 ? (
         <p>No egress allowed.</p>

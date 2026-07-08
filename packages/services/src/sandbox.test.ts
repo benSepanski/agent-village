@@ -29,6 +29,7 @@ const manifest: ApplicationManifest = {
   timeoutMinutes: 30,
   egressAllow: [],
   grants: [],
+  env: {},
   flushIntervalSeconds: 120,
 };
 
@@ -255,6 +256,30 @@ describe('launchSandboxRun', () => {
     // Platform env untouched.
     expect(env['ANTHROPIC_API_KEY']).toBe(GATEWAY_TOKEN);
     expect(env['AWS_SESSION_TOKEN']).toBe('ST');
+  });
+
+  it('injects manifest.env into the app container after the platform block, before grant env', async () => {
+    await launchSandboxRun({
+      agent,
+      manifest: {
+        ...manifest,
+        env: { GMAIL_ADDRESS: 'agent@example.com', GMAIL_MAX_REPLIES: '3' },
+        grants: [{ kind: 'secret', name: 'gmail-app-password', env: 'GMAIL_APP_PASSWORD' }],
+      },
+      runId: RUN_ID,
+      gatewayToken: GATEWAY_TOKEN,
+    });
+    const cmd = ecsSend.mock.calls[0]![0] as RunTaskCommand;
+    const app = cmd.input.overrides?.containerOverrides?.find((o) => o.name === 'app');
+    const names = (app?.environment ?? []).map((e) => e.name);
+    const env = Object.fromEntries((app?.environment ?? []).map((e) => [e.name, e.value]));
+    expect(env['GMAIL_ADDRESS']).toBe('agent@example.com');
+    expect(env['GMAIL_MAX_REPLIES']).toBe('3');
+    // Platform block untouched and first; grant env stays last (ECS applies
+    // the last duplicate name, so the safe order is platform → env → grants).
+    expect(env['ANTHROPIC_API_KEY']).toBe(GATEWAY_TOKEN);
+    expect(names.indexOf('AWS_SESSION_TOKEN')).toBeLessThan(names.indexOf('GMAIL_ADDRESS'));
+    expect(names.indexOf('GMAIL_ADDRESS')).toBeLessThan(names.indexOf('GMAIL_APP_PASSWORD'));
   });
 
   it('refuses a secret grant naming a platform-managed leaf, even if one slipped past the schema', async () => {

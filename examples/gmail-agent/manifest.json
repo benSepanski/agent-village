@@ -9,10 +9,10 @@
   "schedule": "cron(0/15 * * * ? *)",
   "timeoutMinutes": 10,
   "egressAllow": ["imap.gmail.com", "smtp.gmail.com", "registry.npmjs.org"],
-  "grants": [
-    { "kind": "secret", "name": "gmail-app-password", "env": "GMAIL_APP_PASSWORD" },
-    { "kind": "secret", "name": "gmail-address", "env": "GMAIL_ADDRESS" },
-    { "kind": "secret", "name": "gmail-allowed-senders", "env": "GMAIL_ALLOWED_SENDERS" }
-  ],
+  "grants": [{ "kind": "secret", "name": "gmail-app-password", "env": "GMAIL_APP_PASSWORD" }],
+  "env": {
+    "GMAIL_ADDRESS": "my-agent@gmail.com",
+    "GMAIL_ALLOWED_SENDERS": "me@example.com,teammate@example.com"
+  },
   "flushIntervalSeconds": 0
 }

@@ -174,6 +174,7 @@ const manifest: ApplicationManifest = {
   timeoutMinutes: TIMEOUT_MINUTES,
   egressAllow: [],
   grants: [],
+  env: {},
   flushIntervalSeconds: 0,
 };
 

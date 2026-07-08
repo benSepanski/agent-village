@@ -4,6 +4,8 @@ import type { AgentId, UserId } from './ids.js';
 const NAME_MAX = 80;
 const EGRESS_MAX = 25;
 const GRANTS_MAX = 10;
+const ENV_ENTRIES_MAX = 20;
+const ENV_VALUE_MAX = 2048;
 const RECIPIENTS_MAX = 20;
 const TIMEOUT_MINUTES_MAX = 120;
 const FLUSH_SECONDS_MAX = 3600;
@@ -65,6 +67,16 @@ export function isReservedSecretLeaf(name: string): boolean {
   return RESERVED_SECRET_LEAVES.has(name);
 }
 
+/** Env var name an app may receive (manifest `env` key or SecretGrant `env`). */
+const SandboxEnvName = z
+  .string()
+  .min(1)
+  .max(ENV_NAME_MAX)
+  .regex(ENV_NAME_REGEX, 'must be an UPPER_SNAKE_CASE env var name, e.g. GMAIL_APP_PASSWORD')
+  .refine((name) => !isReservedSandboxEnv(name), {
+    message: 'collides with a platform-reserved env var',
+  });
+
 export const EgressDomain = z
   .string()
   .regex(DOMAIN_REGEX, 'must be a bare domain like api.notion.com or *.example.com');
@@ -111,14 +123,7 @@ export const SecretGrant = z.object({
       message: 'names a platform-managed secret',
     }),
   /** Env var the secret value is injected as into the run. */
-  env: z
-    .string()
-    .min(1)
-    .max(ENV_NAME_MAX)
-    .regex(ENV_NAME_REGEX, 'must be an UPPER_SNAKE_CASE env var name, e.g. GMAIL_APP_PASSWORD')
-    .refine((name) => !isReservedSandboxEnv(name), {
-      message: 'collides with a platform-reserved env var',
-    }),
+  env: SandboxEnvName,
 });
 export type SecretGrant = z.infer<typeof SecretGrant>;
 
@@ -147,36 +152,80 @@ function rejectDuplicateSecretEnv(grants: ToolGrant[], ctx: z.RefinementCtx): vo
 }
 
 /**
+ * A manifest `env` key colliding with a secret grant's env var would silently
+ * shadow one or the other (ECS applies the last duplicate name); reserved-name
+ * validation already rules out platform collisions, this rules out grant ones.
+ */
+function rejectEnvGrantCollision(
+  manifest: { env: Record<string, string>; grants: ToolGrant[] },
+  ctx: z.RefinementCtx,
+): void {
+  const grantEnv = new Set(manifest.grants.flatMap((g) => (g.kind === 'secret' ? [g.env] : [])));
+  for (const key of Object.keys(manifest.env)) {
+    if (grantEnv.has(key)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['env', key],
+        message: `env key ${key} collides with a secret grant env var`,
+      });
+    }
+  }
+}
+
+/**
  * The contract between an application and agent-village: everything the
  * platform needs to schedule, sandbox, and restrict a containerized run.
  * The application image must be built FROM the sandbox base image so the
  * workspace-sync entrypoint wraps the run.
  */
-export const ApplicationManifest = z.object({
-  name: z.string().min(1).max(NAME_MAX),
-  /** Image URI (built FROM the sandbox base image). */
-  image: z.string().min(1),
-  /** Overrides the image CMD; the base-image entrypoint always wraps it. */
-  command: z.array(z.string().min(1)).min(1).optional(),
-  /**
-   * App-declared cron, informational only. The runner schedule is driven by the
-   * agent's own top-level `schedule` (see services/agent.ts syncSchedule); this
-   * field is not automatically applied to EventBridge. Set the agent schedule
-   * separately to make a manifest agent run.
-   */
-  schedule: z.string().min(1).nullable(),
-  timeoutMinutes: z.number().int().min(1).max(TIMEOUT_MINUTES_MAX).default(DEFAULT_TIMEOUT_MINUTES),
-  /** Domains the egress proxy lets the sandbox reach. Empty = no egress. */
-  egressAllow: z.array(EgressDomain).max(EGRESS_MAX).default([]),
-  grants: z.array(ToolGrant).max(GRANTS_MAX).default([]).superRefine(rejectDuplicateSecretEnv),
-  /** Seconds between background workspace flushes to S3; 0 disables. */
-  flushIntervalSeconds: z
-    .number()
-    .int()
-    .min(0)
-    .max(FLUSH_SECONDS_MAX)
-    .default(DEFAULT_FLUSH_SECONDS),
-});
+export const ApplicationManifest = z
+  .object({
+    name: z.string().min(1).max(NAME_MAX),
+    /** Image URI (built FROM the sandbox base image). */
+    image: z.string().min(1),
+    /** Overrides the image CMD; the base-image entrypoint always wraps it. */
+    command: z.array(z.string().min(1)).min(1).optional(),
+    /**
+     * App-declared cron, informational only. The runner schedule is driven by the
+     * agent's own top-level `schedule` (see services/agent.ts syncSchedule); this
+     * field is not automatically applied to EventBridge. Set the agent schedule
+     * separately to make a manifest agent run.
+     */
+    schedule: z.string().min(1).nullable(),
+    timeoutMinutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(TIMEOUT_MINUTES_MAX)
+      .default(DEFAULT_TIMEOUT_MINUTES),
+    /** Domains the egress proxy lets the sandbox reach. Empty = no egress. */
+    egressAllow: z.array(EgressDomain).max(EGRESS_MAX).default([]),
+    grants: z.array(ToolGrant).max(GRANTS_MAX).default([]).superRefine(rejectDuplicateSecretEnv),
+    /**
+     * Plain (non-secret) config injected into the app container as env vars —
+     * stored in cleartext on the agent record, so anything sensitive belongs in
+     * a `secret` grant instead. Values must be non-empty (an empty env var is
+     * indistinguishable from a typo'd key at runtime — omit the key instead)
+     * and the map stays small: ECS RunTask overrides carry it whole under an
+     * 8 KiB total limit.
+     */
+    env: z
+      .record(SandboxEnvName, z.string().min(1).max(ENV_VALUE_MAX))
+      .default({})
+      .refine((env) => Object.keys(env).length <= ENV_ENTRIES_MAX, {
+        message: `env may have at most ${ENV_ENTRIES_MAX} entries`,
+      }),
+    /** Seconds between background workspace flushes to S3; 0 disables. */
+    flushIntervalSeconds: z
+      .number()
+      .int()
+      .min(0)
+      .max(FLUSH_SECONDS_MAX)
+      .default(DEFAULT_FLUSH_SECONDS),
+  })
+  // Whole-object check: rejectDuplicateSecretEnv only compares grants to each
+  // other; this compares the plain env map against the secret grants.
+  .superRefine(rejectEnvGrantCollision);
 export type ApplicationManifest = z.infer<typeof ApplicationManifest>;
 
 const WorkspaceKeySegment = z

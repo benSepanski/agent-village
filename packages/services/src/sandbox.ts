@@ -213,6 +213,11 @@ function buildEnvironment(args: AppOverrideInput): KeyValuePair[] {
     // CONNECT support; pointing cooperating SDKs (incl. the AWS CLI, which
     // honours HTTPS_PROXY) at it would break `aws s3 sync`. iptables is the sole,
     // sufficient enforcement — see ADR 0003.
+    // Plain manifest config after the platform block, before the grant env.
+    // Schema validation makes collisions with either unrepresentable (reserved
+    // names cover the platform block; a superRefine covers the grants), but
+    // ECS applies the last duplicate name, so keep the safe order anyway.
+    ...Object.entries(input.manifest.env).map(([name, value]) => ({ name, value })),
     // Per-run tool-grant env appended last (does not disturb the STS creds).
     ...grantEnv,
   ];

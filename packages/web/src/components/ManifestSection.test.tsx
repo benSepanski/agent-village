@@ -37,6 +37,7 @@ describe('ManifestSection', () => {
         schedule: '0 * * * *',
         timeoutMinutes: 15,
         egressAllow: ['api.notion.com', '*.github.com'],
+        env: { GMAIL_ADDRESS: 'agent@example.com', GMAIL_MAX_REPLIES: '3' },
         flushIntervalSeconds: 60,
         grants: [
           {
@@ -60,6 +61,8 @@ describe('ManifestSection', () => {
     expect(screen.getByText('0 * * * *')).toBeDefined();
     expect(screen.getByText('15')).toBeDefined();
     expect(screen.getByText('60')).toBeDefined();
+    expect(screen.getByText('GMAIL_ADDRESS=agent@example.com')).toBeDefined();
+    expect(screen.getByText('GMAIL_MAX_REPLIES=3')).toBeDefined();
     expect(screen.getByText('api.notion.com')).toBeDefined();
     expect(screen.getByText('*.github.com')).toBeDefined();
     expect(screen.getByText(/from agent@example.com/)).toBeDefined();

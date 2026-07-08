@@ -14,7 +14,7 @@ phase's steps 01–02.
 
 | Step | Deliverable                                                                                                                                                           | Status |
 | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| 01   | `manifest.env`: validated plain env map injected into the app container; gmail-agent's non-secret config moves off secret grants                                      | 📋     |
+| 01   | `manifest.env`: validated plain env map injected into the app container; gmail-agent's non-secret config moves off secret grants                                      | ✅     |
 | 02   | Agent-secrets API + CLI: `POST/GET/DELETE /agents/{id}/secrets[/{name}]` wiring `storeAgentSecret`; `village secrets set/list/rm`; agent delete cleans up its secrets | 📋     |
 | 03   | `manifest.image` honored: a non-base image tag launches via a per-image task definition cloned from the static one; Python image recipe example                       | 📋     |
 
@@ -37,7 +37,9 @@ phase's steps 01–02.
   Validation of the feature: `examples/gmail-agent` moves `gmail-address` and
   `gmail-allowed-senders` from `secret` grants to `manifest.env` (the app
   password stays a secret grant); its README drops the two now-unneeded
-  `aws secretsmanager` provisioning steps.
+  `aws secretsmanager` provisioning steps. _As built:_ values additionally
+  require `min(1)` — an empty env var is indistinguishable from a typo'd key
+  at runtime, so the key must be omitted instead.
 
 - **02 — agent-secrets API + CLI.** Wires the existing data layer
   (`grantSecrets.storeAgentSecret` / `deleteAgentSecret`,

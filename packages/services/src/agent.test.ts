@@ -149,6 +149,7 @@ describe('updateAgent', () => {
       timeoutMinutes: 30,
       egressAllow: ['api.notion.com'],
       grants: [],
+      env: {},
       flushIntervalSeconds: 300,
     };
     agentRepoMock.getAgent.mockResolvedValue(agentFixture);
