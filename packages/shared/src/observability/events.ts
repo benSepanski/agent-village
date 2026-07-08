@@ -9,6 +9,9 @@ export const LOG_EVENTS = [
   'agent.deleted',
   'agent.paused',
   'agent.resumed',
+  // User-managed per-agent secrets (Phase 4 step 02) — names only, never values:
+  'agent.secret.stored',
+  'agent.secret.deleted',
   'agent.run.started',
   'agent.run.config_loaded',
   'agent.run.spend_reserved',

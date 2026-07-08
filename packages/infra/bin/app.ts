@@ -97,7 +97,7 @@ NagSuppressions.addStackSuppressions(api, [
   {
     id: 'AwsSolutions-IAM5',
     reason:
-      'Per-agent secret ARNs are dynamic — granting on the agent-village/<env>/agents/*/anthropic-key prefix is the narrowest pattern available. Same logic for DDB GSI access via /index/*, EventBridge Scheduler (resource-level perms not yet supported), and Lambda invoke (qualifier wildcard).',
+      'Per-agent secret ARNs are dynamic — granting on the agent-village/<env>/agents/*/anthropic-key prefix is the narrowest pattern available. Same logic for DDB GSI access via /index/*, EventBridge Scheduler (resource-level perms not yet supported), Lambda invoke (qualifier wildcard), and secretsmanager:ListSecrets (no resource-level scoping exists; the handlers filter on the agent name prefix in code).',
     appliesTo: [
       'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/dev/agents/*',
       'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/dev/agents/*/anthropic-key-*',

@@ -95,13 +95,14 @@ Secret grants resolve `agent-village/<env>/agents/<agentId>/<name>`. Only the
 app password is sensitive, so it is the only secret to provision:
 
 ```sh
-ENV=dev            # your deployment env
 AGENT_ID=agt_...   # from step 2
-PREFIX="agent-village/$ENV/agents/$AGENT_ID"
 
-aws secretsmanager create-secret --name "$PREFIX/gmail-app-password" \
-  --secret-string 'abcdabcdabcdabcd'
+village secrets set "$AGENT_ID" gmail-app-password   # value read from stdin
 ```
+
+(`--from-file <path>` and `--value` work too; `village secrets list`/`rm`
+manage what's stored. Without the CLI, the equivalent aws call is
+`aws secretsmanager create-secret --name "agent-village/<env>/agents/$AGENT_ID/gmail-app-password" --secret-string '...'`.)
 
 The non-secret config (`GMAIL_ADDRESS`, `GMAIL_ALLOWED_SENDERS`) rides
 `manifest.env` — a plain env map the platform injects into the app container.

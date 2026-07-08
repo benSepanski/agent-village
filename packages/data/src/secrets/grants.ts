@@ -2,6 +2,7 @@ import {
   CreateSecretCommand,
   DeleteSecretCommand,
   GetSecretValueCommand,
+  ListSecretsCommand,
   PutSecretValueCommand,
 } from '@aws-sdk/client-secrets-manager';
 import { agentSecretPrefix } from '@agent-village/domain';
@@ -116,4 +117,30 @@ export function getAgentSecret(idOrName: string): Promise<string> {
 
 export function deleteAgentSecret(idOrName: string): Promise<void> {
   return deleteGrantSecret(idOrName);
+}
+
+/**
+ * List the leaf names (prefix stripped) of every secret under `agentId`'s
+ * Secrets Manager prefix. The `name` filter is a prefix match, so this returns
+ * platform-managed leaves (e.g. `anthropic-key`) too — callers decide whether
+ * to hide them.
+ */
+export async function listAgentSecrets(agentId: string, env: string): Promise<string[]> {
+  const prefix = agentSecretPrefix(agentId, env);
+  const client = getSecretsClient();
+  const leaves: string[] = [];
+  let nextToken: string | undefined;
+  do {
+    const res = await client.send(
+      new ListSecretsCommand({
+        Filters: [{ Key: 'name', Values: [prefix] }],
+        NextToken: nextToken,
+      }),
+    );
+    for (const secret of res.SecretList ?? []) {
+      if (secret.Name?.startsWith(prefix)) leaves.push(secret.Name.slice(prefix.length));
+    }
+    nextToken = res.NextToken;
+  } while (nextToken !== undefined);
+  return leaves.sort();
 }

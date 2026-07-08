@@ -3,6 +3,7 @@ import {
   CreateSecretCommand,
   DeleteSecretCommand,
   GetSecretValueCommand,
+  ListSecretsCommand,
   PutSecretValueCommand,
 } from '@aws-sdk/client-secrets-manager';
 import { createSecretsMock, type SecretsMock } from '../../test-utils/secrets-mock.js';
@@ -16,6 +17,7 @@ import {
   getGithubPat,
   getNotionToken,
   githubSecretName,
+  listAgentSecrets,
   notionSecretName,
   storeAgentSecret,
   storeGithubPat,
@@ -103,6 +105,37 @@ describe('generic agent secrets', () => {
     await deleteAgentSecret(ARN);
     const call = mock.commandCalls(DeleteSecretCommand)[0]!;
     expect(call.args[0].input.ForceDeleteWithoutRecovery).toBe(true);
+  });
+});
+
+describe('listAgentSecrets', () => {
+  const PREFIX = 'agent-village/dev/agents/agent-1/';
+
+  it('filters on the agent prefix and returns sorted leaf names', async () => {
+    mock.on(ListSecretsCommand).resolves({
+      SecretList: [{ Name: `${PREFIX}gmail-app-password` }, { Name: `${PREFIX}anthropic-key` }],
+    });
+    expect(await listAgentSecrets(AGENT_ID, ENV)).toEqual(['anthropic-key', 'gmail-app-password']);
+    const call = mock.commandCalls(ListSecretsCommand)[0]!;
+    expect(call.args[0].input.Filters).toEqual([{ Key: 'name', Values: [PREFIX] }]);
+  });
+
+  it('paginates through NextToken and skips names outside the prefix', async () => {
+    mock
+      .on(ListSecretsCommand)
+      .resolvesOnce({ SecretList: [{ Name: `${PREFIX}b-leaf` }], NextToken: 'tok1' })
+      .resolvesOnce({
+        SecretList: [{ Name: `${PREFIX}a-leaf` }, { Name: 'agent-village/dev/agents/other/x' }],
+      });
+    expect(await listAgentSecrets(AGENT_ID, ENV)).toEqual(['a-leaf', 'b-leaf']);
+    const calls = mock.commandCalls(ListSecretsCommand);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.args[0].input.NextToken).toBe('tok1');
+  });
+
+  it('returns an empty list when the agent has no secrets', async () => {
+    mock.on(ListSecretsCommand).resolves({});
+    expect(await listAgentSecrets(AGENT_ID, ENV)).toEqual([]);
   });
 });
 

@@ -1,4 +1,4 @@
-import { agentRepo, secrets, type AgentPatch } from '@agent-village/data';
+import { agentRepo, grantSecrets, secrets, type AgentPatch } from '@agent-village/data';
 import { AgentNotFoundError, validateCron } from '@agent-village/domain';
 import {
   AgentId as AgentIdSchema,
@@ -135,6 +135,23 @@ export async function deleteAgent(ownerSub: UserId, agentId: AgentId): Promise<v
   if (!current) throw new AgentNotFoundError(agentId);
   await removeSchedule(agentId);
   await secrets.deleteAnthropicKey(current.anthropicSecretArn).catch(() => undefined);
+  await deleteRemainingSecrets(agentId).catch(() => undefined);
   await agentRepo.deleteAgent(ownerSub, agentId);
   logger.info({ event: 'agent.deleted', agentId, userId: ownerSub });
+}
+
+/**
+ * Best-effort sweep of every remaining secret under the agent's prefix
+ * (user-managed secrets plus notion-token/github-pat grant secrets), closing
+ * the orphaned-grant-secrets gap. Failures never block the agent delete.
+ */
+async function deleteRemainingSecrets(agentId: AgentId): Promise<void> {
+  const leaves = await grantSecrets.listAgentSecrets(agentId, ENV);
+  await Promise.all(
+    leaves.map((leaf) =>
+      grantSecrets
+        .deleteAgentSecret(grantSecrets.agentSecretName(agentId, leaf, ENV))
+        .catch(() => undefined),
+    ),
+  );
 }

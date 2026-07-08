@@ -73,6 +73,19 @@ export class GrantSecretOwnershipError extends Error {
   }
 }
 
+export class SecretPendingDeletionError extends Error {
+  readonly statusCode = 409;
+  readonly details: { agentId: string; secretName: string };
+
+  constructor(agentId: string, secretName: string) {
+    super(
+      `secret "${secretName}" for agent ${agentId} is scheduled for deletion in Secrets Manager; retry shortly`,
+    );
+    this.name = 'SecretPendingDeletionError';
+    this.details = { agentId, secretName };
+  }
+}
+
 export class InvalidScheduleError extends Error {
   readonly statusCode = 400;
   readonly details: { schedule: string; reason?: string };

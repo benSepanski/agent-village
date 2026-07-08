@@ -67,6 +67,22 @@ export function isReservedSecretLeaf(name: string): boolean {
   return RESERVED_SECRET_LEAVES.has(name);
 }
 
+/**
+ * Leaf name of a user-managed per-agent secret (the `<name>` in
+ * `agent-village/<env>/agents/<agentId>/<name>`). Shared by `SecretGrant`
+ * and the agent-secrets API so a user can never address a reserved
+ * platform leaf — `anthropic-key` in particular (see RESERVED_SECRET_LEAVES).
+ */
+export const SecretLeafName = z
+  .string()
+  .min(1)
+  .max(SECRET_NAME_MAX)
+  .regex(SECRET_NAME_REGEX, 'must be kebab-case, e.g. gmail-app-password')
+  .refine((name) => !isReservedSecretLeaf(name), {
+    message: 'names a platform-managed secret',
+  });
+export type SecretLeafName = z.infer<typeof SecretLeafName>;
+
 /** Env var name an app may receive (manifest `env` key or SecretGrant `env`). */
 const SandboxEnvName = z
   .string()
@@ -114,14 +130,7 @@ export type GithubGrant = z.infer<typeof GithubGrant>;
 export const SecretGrant = z.object({
   kind: z.literal('secret'),
   /** Secret name under the agent's own Secrets Manager prefix. */
-  name: z
-    .string()
-    .min(1)
-    .max(SECRET_NAME_MAX)
-    .regex(SECRET_NAME_REGEX, 'must be kebab-case, e.g. gmail-app-password')
-    .refine((name) => !isReservedSecretLeaf(name), {
-      message: 'names a platform-managed secret',
-    }),
+  name: SecretLeafName,
   /** Env var the secret value is injected as into the run. */
   env: SandboxEnvName,
 });

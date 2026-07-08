@@ -15,7 +15,7 @@ phase's steps 01–02.
 | Step | Deliverable                                                                                                                                                           | Status |
 | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | 01   | `manifest.env`: validated plain env map injected into the app container; gmail-agent's non-secret config moves off secret grants                                      | ✅     |
-| 02   | Agent-secrets API + CLI: `POST/GET/DELETE /agents/{id}/secrets[/{name}]` wiring `storeAgentSecret`; `village secrets set/list/rm`; agent delete cleans up its secrets | 📋     |
+| 02   | Agent-secrets API + CLI: `POST/GET/DELETE /agents/{id}/secrets[/{name}]` wiring `storeAgentSecret`; `village secrets set/list/rm`; agent delete cleans up its secrets | ✅     |
 | 03   | `manifest.image` honored: a non-base image tag launches via a per-image task definition cloned from the static one; Python image recipe example                       | 📋     |
 
 ## Step notes
@@ -66,7 +66,13 @@ phase's steps 01–02.
   (value via `--value`, `--from-file`, or stdin — never a positional arg),
   `list`, `rm`; output prints names/ARNs only. Handler tests must extend the
   `vi.hoisted` services mock in `handlers.test.ts` (a missing key crashes at
-  import), CLI tests the `fakeClient` in `commands.test.ts`.
+  import), CLI tests the `fakeClient` in `commands.test.ts`. _As built:_ the
+  leaf-name rules moved into a shared exported schema (`SecretLeafName`,
+  reused by `SecretGrant`); the listing hides reserved platform leaves
+  (`anthropic-key` & co. — not settable/deletable here, so not listed);
+  writes/deletes racing Secrets Manager's deletion window surface as a 409
+  `SecretPendingDeletionError`; and `deleteAgent`'s sweep also needed the
+  ListSecrets `*` grant (same documented IAM5 suppression as the GET route).
 
 - **03 — `manifest.image`.** Contract: `image` is an **image tag in the
   platform's sandbox-base ECR repo**, not a free URI — the schema tightens to

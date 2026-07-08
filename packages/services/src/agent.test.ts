@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { agentRepoMock, secretsMock, scheduling } = vi.hoisted(() => ({
+const { agentRepoMock, secretsMock, grantSecretsMock, scheduling } = vi.hoisted(() => ({
   agentRepoMock: {
     listMyAgents: vi.fn(),
     getAgent: vi.fn(),
@@ -13,6 +13,12 @@ const { agentRepoMock, secretsMock, scheduling } = vi.hoisted(() => ({
     rotateAnthropicKey: vi.fn(),
     deleteAnthropicKey: vi.fn(),
   },
+  grantSecretsMock: {
+    listAgentSecrets: vi.fn(),
+    deleteAgentSecret: vi.fn(),
+    agentSecretName: (agentId: string, name: string, env: string) =>
+      `agent-village/${env}/agents/${agentId}/${name}`,
+  },
   scheduling: {
     upsertSchedule: vi.fn(),
     removeSchedule: vi.fn(),
@@ -24,6 +30,7 @@ vi.mock('@agent-village/data', () => ({
   userRepo: {},
   runRepo: {},
   secrets: secretsMock,
+  grantSecrets: grantSecretsMock,
 }));
 vi.mock('./scheduling.js', () => scheduling);
 
@@ -62,6 +69,8 @@ beforeEach(() => {
   Object.values(agentRepoMock).forEach((m) => m.mockReset());
   Object.values(secretsMock).forEach((m) => m.mockReset());
   Object.values(scheduling).forEach((m) => m.mockReset());
+  grantSecretsMock.listAgentSecrets.mockReset().mockResolvedValue([]);
+  grantSecretsMock.deleteAgentSecret.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -185,5 +194,27 @@ describe('deleteAgent', () => {
   it('throws when the agent is missing', async () => {
     agentRepoMock.getAgent.mockResolvedValue(null);
     await expect(deleteAgent(SUB, AGENT_ID)).rejects.toBeInstanceOf(AgentNotFoundError);
+  });
+
+  it('sweeps every remaining secret under the agent prefix', async () => {
+    agentRepoMock.getAgent.mockResolvedValue(agentFixture);
+    secretsMock.deleteAnthropicKey.mockResolvedValue(undefined);
+    grantSecretsMock.listAgentSecrets.mockResolvedValue(['gmail-app-password', 'notion-token']);
+    await deleteAgent(SUB, AGENT_ID);
+    expect(grantSecretsMock.listAgentSecrets).toHaveBeenCalledWith(AGENT_ID, 'dev');
+    expect(grantSecretsMock.deleteAgentSecret).toHaveBeenCalledWith(
+      `agent-village/dev/agents/${AGENT_ID}/gmail-app-password`,
+    );
+    expect(grantSecretsMock.deleteAgentSecret).toHaveBeenCalledWith(
+      `agent-village/dev/agents/${AGENT_ID}/notion-token`,
+    );
+  });
+
+  it('still deletes the agent row when the secret sweep fails', async () => {
+    agentRepoMock.getAgent.mockResolvedValue(agentFixture);
+    secretsMock.deleteAnthropicKey.mockResolvedValue(undefined);
+    grantSecretsMock.listAgentSecrets.mockRejectedValue(new Error('sm down'));
+    await deleteAgent(SUB, AGENT_ID);
+    expect(agentRepoMock.deleteAgent).toHaveBeenCalledWith(SUB, AGENT_ID);
   });
 });

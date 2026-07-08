@@ -3,6 +3,7 @@ import {
   AgentNotFoundError,
   AgentRunInProgressError,
   InvalidScheduleError,
+  SecretPendingDeletionError,
   SpendLimitExceededError,
 } from './errors.js';
 
@@ -39,6 +40,16 @@ describe('AgentRunInProgressError', () => {
     expect(err.name).toBe('AgentRunInProgressError');
     expect(err.message).toContain('agent-3');
     expect(err.details.agentId).toBe('agent-3');
+  });
+});
+
+describe('SecretPendingDeletionError', () => {
+  it('carries the agentId and secret name with a 409 status', () => {
+    const err = new SecretPendingDeletionError('agent-4', 'gmail-app-password');
+    expect(err.statusCode).toBe(409);
+    expect(err.name).toBe('SecretPendingDeletionError');
+    expect(err.message).toContain('gmail-app-password');
+    expect(err.details).toEqual({ agentId: 'agent-4', secretName: 'gmail-app-password' });
   });
 });
 
