@@ -166,6 +166,12 @@ export async function finalizeSandboxRun(input: FinalizeSandboxRunInput): Promis
     exitCode: input.exitCode,
     // reservedUsd is NOT nulled here — reconcileComputeSpend claims it with a
     // conditional write so concurrent redeliveries settle exactly once.
+    // gatewayTokenHash IS nulled: the task has stopped, so the per-run metering
+    // token must stop authenticating — including for a breached run, whose
+    // status (spend_limit_exceeded) would otherwise keep it in the gateway's
+    // ACTIVE_RUN_STATUSES set forever (ADR 0004: "a leaked token dies with its
+    // run"). authenticate() rejects a run with no gatewayTokenHash.
+    gatewayTokenHash: null,
     events: terminalEvents(existing, input),
     ...(breached
       ? {}

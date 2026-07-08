@@ -72,6 +72,8 @@ export interface RunPatch {
   costUsd?: number;
   taskArn?: string | null;
   reservedUsd?: number | null;
+  /** Nulled at terminal settlement so a leaked per-run gateway token dies with the run. */
+  gatewayTokenHash?: string | null;
   /** Full replacement of the observed-events list (callers merge before patching). */
   events?: RunEvent[];
 }

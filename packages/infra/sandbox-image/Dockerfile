@@ -14,7 +14,18 @@ RUN apt-get update \
 COPY entrypoint.sh /usr/local/bin/av-sandbox-entrypoint
 RUN chmod +x /usr/local/bin/av-sandbox-entrypoint
 
+# Run applications as a fixed non-root uid that is NOT the egress-proxy uid
+# (1337). The proxy sidecar shares this task's network namespace and exempts its
+# own uid from the iptables egress redirect (ADR 0003); a root app could
+# `setuid(1337)` and send traffic straight out, bypassing the allowlist and the
+# metering gateway. A non-root app has no CAP_SETUID, so it cannot assume 1337.
+# The task definition also pins `user` so a derived image cannot revert this.
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin sandbox \
+  && mkdir -p /workspace \
+  && chown -R 10001:10001 /workspace
+
 WORKDIR /workspace
+USER 10001
 ENTRYPOINT ["/usr/local/bin/av-sandbox-entrypoint"]
 # Applications override CMD (or the manifest's `command` overrides it per run).
 CMD ["node", "--version"]

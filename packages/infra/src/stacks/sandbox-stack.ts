@@ -3,6 +3,8 @@ import { SecurityGroup, SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
 import { Repository, TagMutability } from 'aws-cdk-lib/aws-ecr';
 import {
   Cluster,
+  type ContainerDefinition,
+  ContainerDependencyCondition,
   ContainerImage,
   CpuArchitecture,
   FargateTaskDefinition,
@@ -187,8 +189,15 @@ export class SandboxStack extends Stack {
       },
     });
     const logging = LogDrivers.awsLogs({ logGroup, streamPrefix: 'sandbox' });
-    this.addAppContainer(taskDefinition, config, logging);
-    this.addProxyContainer(taskDefinition, config, logging);
+    const app = this.addAppContainer(taskDefinition, config, logging);
+    const proxy = this.addProxyContainer(taskDefinition, config, logging);
+    // Gate the app on the proxy being HEALTHY: the proxy's health check passes
+    // only after its entrypoint has installed the iptables egress rules, so the
+    // app cannot start (and egress) in the window before enforcement is up.
+    app.addContainerDependencies({
+      container: proxy,
+      condition: ContainerDependencyCondition.HEALTHY,
+    });
     // Task-role ceiling: bucket-wide read/write. The launcher narrows each run
     // to its own workspacePrefix via an STS session policy.
     this.workspaceBucket.grantReadWrite(this.taskRole);
@@ -222,11 +231,16 @@ export class SandboxStack extends Stack {
     taskDefinition: FargateTaskDefinition,
     config: EnvConfig,
     logging: LogDriver,
-  ): void {
-    taskDefinition.addContainer('app', {
+  ): ContainerDefinition {
+    return taskDefinition.addContainer('app', {
       containerName: 'app',
       image: ContainerImage.fromEcrRepository(this.baseImageRepository, 'latest'),
       logging,
+      // Pin the app to the base image's non-root uid so a manifest image cannot
+      // revert to root and setuid to the egress-proxy uid (1337) to bypass the
+      // iptables egress redirect (ADR 0003). No LinuxParameters: the app must
+      // never hold NET_ADMIN (only the proxy may touch iptables).
+      user: '10001',
       // Max Fargate SIGTERM→SIGKILL window: when the watchdog StopTask fires,
       // the entrypoint's final `aws s3 sync` up must get a real chance to
       // finish (the default 30s can truncate it mid-flight).
@@ -243,19 +257,30 @@ export class SandboxStack extends Stack {
     taskDefinition: FargateTaskDefinition,
     config: EnvConfig,
     logging: LogDriver,
-  ): void {
+  ): ContainerDefinition {
     // Second container per task (ADR 0003): installs iptables NAT rules in the
     // shared task network namespace, so it needs NET_ADMIN. The per-run
     // allowlist arrives as an AV_EGRESS_ALLOW container override from the
     // launcher; AV_REGION lets the proxy expand AWS base domains.
     const linuxParameters = new LinuxParameters(this, 'ProxyLinuxParameters');
     linuxParameters.addCapabilities(Capability.NET_ADMIN);
-    taskDefinition.addContainer('egress-proxy', {
+    return taskDefinition.addContainer('egress-proxy', {
       containerName: 'egress-proxy',
       image: ContainerImage.fromEcrRepository(this.proxyImageRepository, 'latest'),
       logging,
       linuxParameters,
       environment: { AV_ENV: config.env, AV_REGION: config.region },
+      // Readiness = iptables egress rules installed. The entrypoint writes the
+      // marker file only after all NAT/filter rules are up (and before it drops
+      // privileges), so the app's dependsOn:HEALTHY closes the start-order
+      // window where the app could egress unfiltered.
+      healthCheck: {
+        command: ['CMD-SHELL', 'test -f /tmp/av-egress-ready'],
+        interval: Duration.seconds(5),
+        timeout: Duration.seconds(2),
+        retries: 3,
+        startPeriod: Duration.seconds(30),
+      },
     });
   }
 }

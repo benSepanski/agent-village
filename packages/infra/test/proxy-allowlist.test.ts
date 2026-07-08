@@ -139,8 +139,9 @@ describe('resolveTarget (port-mapped original-destination recovery)', () => {
 });
 
 describe('entrypoint.sh port map lockstep', () => {
+  const script = readFileSync(new URL('../proxy-image/entrypoint.sh', import.meta.url), 'utf8');
+
   it('REDIRECTs exactly the supported original ports to their 15000+P listeners', () => {
-    const script = readFileSync(new URL('../proxy-image/entrypoint.sh', import.meta.url), 'utf8');
     const loop = /for dport in ([0-9 ]+); do/.exec(script);
     expect(loop).not.toBeNull();
     const scriptPorts = (loop?.[1] ?? '')
@@ -150,5 +151,18 @@ describe('entrypoint.sh port map lockstep', () => {
       .sort((a, b) => a - b);
     expect(scriptPorts).toEqual([...SUPPORTED_PORTS].sort((a, b) => a - b));
     expect(script).toContain('--to-ports "$((15000 + dport))"');
+  });
+
+  it('pins DNS exemptions to the task resolvers, never a blanket dport 53', () => {
+    // A `--dport 53 -j RETURN` without a `-d <resolver>` would let the app open
+    // a raw tunnel to port 53 on any host, bypassing the allowlist.
+    expect(script).toContain('/^nameserver/ { print $2 }');
+    expect(script).toMatch(/-d "\$ns" --dport 53 -j RETURN/);
+    expect(script).not.toMatch(/^[^#\n]*-p (?:udp|tcp) --dport 53 -j RETURN/m);
+  });
+
+  it('writes the readiness marker the app container health check waits on', () => {
+    // Lockstep with sandbox-stack.ts addProxyContainer healthCheck command.
+    expect(script).toContain(': > /tmp/av-egress-ready');
   });
 });

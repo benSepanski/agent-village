@@ -18,7 +18,9 @@ Agent Village: personal AWS-hosted scheduler for autonomous AI agents. Users sig
 | Know what you may / must ask about / must never do             | [docs/permissions/](docs/permissions/)                                         |
 | Add a Lambda / route / etc.                                    | [docs/playbooks/](docs/playbooks/)                                             |
 | See past architectural decisions                               | [docs/adr/](docs/adr/)                                                         |
-| Pick up the next phase of work                                 | [docs/phases/](docs/phases/)                                                   |
+| See where the project is going / the next goal                 | [docs/roadmap.md](docs/roadmap.md)                                             |
+| Pick up or write an execution plan                             | [docs/phases/](docs/phases/)                                                   |
+| Leave / read informal agent working notes                      | [docs/notes/](docs/notes/)                                                     |
 
 ## The shape of the project (one screen)
 
@@ -33,7 +35,7 @@ Agent Village: personal AWS-hosted scheduler for autonomous AI agents. Users sig
 The harness — linters, schemas, dependency-cruiser, hooks, CI — is the primary way correctness is enforced. AGENTS.md and `docs/` exist to help you, but if the harness disagrees with prose, the harness wins. Operating rules:
 
 - **Mechanism beats memory.** Quality is enforced by tools, not by remembering this file. **Never edit lint, type-check, dependency-cruiser, or CI config to silence a violation** — fix the code, or raise an ADR if the rule itself is wrong.
-- **Tests and schemas are ground truth; prose rots.** Prefer adding a Zod schema, test, or ADR over a paragraph that re-describes the code.
+- **Tests and schemas are ground truth; prose rots.** Prefer adding a Zod schema, test, or ADR over a paragraph that _re-describes the code_. This is about redundant description, not about forward-looking material: roadmaps, execution plans, and agent working notes are wanted and have homes — write direction in [docs/roadmap.md](docs/roadmap.md), ordered plans in [docs/phases/](docs/phases/), and session handoffs in [docs/notes/](docs/notes/). Don't bury future goals in a commit message where the next agent won't find them.
 - **Iterative disclosure.** Each doc answers one question on one screen — don't sprawl AGENTS.md. New knowledge goes in a new doc linked from [docs/README.md](docs/README.md).
 - **Fast loops over slow ones.** Run `pnpm lint` / `pnpm typecheck` / `pnpm test` locally — don't push to find out CI says no.
 - **Plan, then verify.** For non-trivial work, sketch the change before executing. Compiling is not "working" — run the relevant tests (and `pnpm e2e` for UI) before declaring it done, or say explicitly in the PR what you couldn't verify.

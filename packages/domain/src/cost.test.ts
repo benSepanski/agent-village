@@ -43,13 +43,34 @@ describe('actualCost', () => {
     });
     expect(cost).toBeCloseTo(3.75 + 0.3, 6);
   });
+
+  it('bills the 1-hour-TTL portion of cache writes at 2x, not 1.25x', () => {
+    // Sonnet $3/Mtok in. 1M total writes, of which 400k are 1h-TTL:
+    // 600k @ 1.25x = $2.25; 400k @ 2.0x = $2.40; total $4.65.
+    const cost = actualCost('claude-sonnet-4-6', {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 1_000_000,
+      cacheCreation1hInputTokens: 400_000,
+    });
+    expect(cost).toBeCloseTo(2.25 + 2.4, 6);
+  });
+
+  it('treats all cache writes as 5-minute (1.25x) when no 1h breakdown is present', () => {
+    const cost = actualCost('claude-sonnet-4-6', {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 1_000_000,
+    });
+    expect(cost).toBeCloseTo(3.75, 6);
+  });
 });
 
 describe('estimateSandboxCost', () => {
   it('bills cpu + memory for the full timeout window', () => {
-    // 0.25 vCPU + 0.5 GiB for 60 min:
-    // 0.25*0.04048 + 0.5*0.004445 = 0.0123425
-    expect(estimateSandboxCost(60, 256, 512)).toBeCloseTo(0.0123425, 6);
+    // ARM64/Graviton rates: 0.25 vCPU + 0.5 GiB for 60 min:
+    // 0.25*0.03238 + 0.5*0.003556 = 0.009873
+    expect(estimateSandboxCost(60, 256, 512)).toBeCloseTo(0.009873, 6);
   });
 
   it('scales linearly with the timeout', () => {

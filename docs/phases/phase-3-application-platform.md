@@ -170,6 +170,48 @@ The step list is the Phase-2 audit's platform gaps, ordered safety-first:
     `packages/web/e2e/README.md`). Not exercised in CI — run it manually
     after deploying.
 
+## Post-implementation review (2026-07-08)
+
+A multi-agent adversarial review of the full phase diff surfaced eight
+confirmed defects, all fixed on this branch:
+
+- **Metering token outlived a breached run (critical).** `spend_limit_exceeded`
+  is both the mid-run breach signal the gateway honors and a _terminal_ status;
+  `gatewayTokenHash` was never cleared, so a leaked per-run token kept
+  authenticating forever after the task died — and the compute reconcile's
+  negative delta freed budget it could then spend. Fix: `finalizeSandboxRun`
+  and `onLaunchFailure` null `gatewayTokenHash`, so every terminal run's token
+  dies (`authenticate()` rejects a hash-less run).
+- **App container ran as root (critical).** The base image had no `USER`; a
+  steered app could `setuid(1337)` (the proxy uid the egress redirect exempts)
+  and bypass the allowlist. ADR 0003 _claimed_ this mitigation existed — now it
+  does: base image runs as uid 10001 and the task definition pins `user`.
+- **DNS port-53 tunnel (major).** The proxy exempted `--dport 53` for _any_
+  host, a full bidirectional tunnel around the allowlist. Now pinned to the
+  task's `/etc/resolv.conf` resolvers.
+- **Start-order egress window (major).** App and proxy started in parallel, so
+  the app could egress before iptables was installed. The proxy now has a
+  health check (readiness marker written after the rules) and the app
+  `dependsOn` it `HEALTHY`.
+- **Fargate cost overstated ~20% (major).** The pricing constants were x86
+  rates on an ARM64 task; corrected to Graviton rates.
+- **Reconcile failure double-billed (major).** A DynamoDB throttle during
+  post-call reconciliation surfaced as a 500, making the sandbox SDK retry an
+  already-billed generation. Reconciliation is now isolated; the billed
+  response is always returned (reservation kept — safe direction).
+- **1-hour cache writes undercounted (major).** Metered at 1.25x but billed 2x
+  by Anthropic. Now the `cache_creation.ephemeral_1h_input_tokens` bucket is
+  priced at 2x.
+- **Run-log panel polled forever (major).** Frozen `running` prop ignored the
+  per-page `runStatus`; polling now self-terminates on a terminal status and
+  the run query refetches while running.
+
+Deferred as minor (documented, low-severity edge cases): CLI `--follow`
+same-millisecond dedupe and late-ingested-event cursor lag; a narrow
+launch-failure-vs-stop-event race that can momentarily show a negative
+`costUsd`; and `markSpendExhausted` relabelling a just-finalized run (de-fanged
+by the token-null fix — it can no longer re-activate a token).
+
 After each step: `pnpm lint && pnpm typecheck && pnpm test` stays green, and
 `pnpm --filter @agent-village/infra synth:dev` must succeed without AWS
 credentials.

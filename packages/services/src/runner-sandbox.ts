@@ -166,6 +166,8 @@ async function onLaunchFailure(
     // Zero the flat estimate so the run doesn't report cost that was refunded
     // (month-to-date sums costUsd).
     costUsd: 0,
+    // The task never really ran; kill its metering token so it can't authenticate.
+    gatewayTokenHash: null,
     events: [...run.events, { event: 'sandbox.run.launch_failed', at: new Date().toISOString() }],
   });
   await agentRepo.releaseActiveRun({

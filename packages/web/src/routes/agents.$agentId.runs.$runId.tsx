@@ -22,6 +22,11 @@ export function RunDetailPage() {
   } = useQuery<Run>({
     queryKey: ['agents', agentId, 'runs', runId],
     queryFn: () => api.get(`/agents/${agentId}/runs/${runId}`),
+    // A sandbox run finalizes asynchronously (the lifecycle Lambda patches
+    // status + reconciled cost after the task stops). Poll while it is running
+    // so the header status and the actual (not flat-reservation) cost appear
+    // without a manual reload; stop as soon as it reaches a terminal status.
+    refetchInterval: (query) => (query.state.data?.status === 'running' ? 5000 : false),
   });
   const replay = useMutation({
     mutationFn: (opts: { dryRun: boolean; replayOfRunId?: string }) =>

@@ -364,6 +364,15 @@ describe('acceptance: forced spend breach mid-run', () => {
     expect(redelivered.costUsd).toBeCloseTo(actualTotal, 12);
     expect(state.ledger.spendUsedUsd).toBeCloseTo(actualTotal, 12);
     expect(redelivered.events).toHaveLength(4);
+
+    // Regression (F1): a breached run is terminal, so its leaked token must
+    // stop authenticating — even though spend_limit_exceeded is also the
+    // still-alive breach status the gateway honors mid-run. Finalize nulled
+    // gatewayTokenHash, so a post-run replay is rejected outright (401), and
+    // the compute refund that dropped spendUsedUsd back under the limit can
+    // never be spent by the dead run's token.
+    expect(state.ledger.spendUsedUsd).toBeLessThan(state.ledger.spendLimitUsd);
+    expect((await handleGatewayRequest(gatewayRequest(token))).status).toBe(401);
   });
 
   it('rejects the launch outright when the flat reservation itself no longer fits', async () => {
@@ -438,8 +447,10 @@ describe('acceptance: forced hang killed at timeout', () => {
     expect(state.ledger.spendUsedUsd).toBeCloseTo(actualUsd, 12);
     expect(state.ledger.activeRunId).toBeNull();
 
-    // A killed run's gateway token is no longer honored.
-    expect((await handleGatewayRequest(gatewayRequest(token))).status).toBe(403);
+    // A killed run's gateway token is no longer honored: finalize nulled its
+    // hash, so authentication fails at the hash check (401) before the
+    // run-status check is even reached.
+    expect((await handleGatewayRequest(gatewayRequest(token))).status).toBe(401);
   });
 
   it('the in-container timeout fallback (exit 124) also finalizes as timed_out', async () => {

@@ -51,6 +51,7 @@ export const LOG_EVENTS = [
   'gateway.request.rejected',
   'gateway.call.forwarded',
   'gateway.call.reconciled',
+  'gateway.call.reconcile_failed',
   'gateway.call.usage_unparsed',
   'gateway.call.upstream_failed',
   'gateway.run.marked_exhausted',

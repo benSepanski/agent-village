@@ -11,15 +11,27 @@ set -euo pipefail
 PROXY_PORT="${AV_PROXY_PORT:-15001}"
 PROXY_UID="${AV_PROXY_UID:-1337}"
 
+# The task's DNS resolvers (from /etc/resolv.conf). DNS is exempted from the
+# redirect for name resolution ONLY to these hosts — matching `--dport 53` for
+# ANY destination would let the app open a raw TCP/UDP tunnel to port 53 on an
+# arbitrary host, bypassing the hostname allowlist entirely.
+RESOLVERS="$(awk '/^nameserver/ { print $2 }' /etc/resolv.conf 2>/dev/null || true)"
+if [ -z "$RESOLVERS" ]; then
+  echo "egress-proxy: WARNING no nameservers in /etc/resolv.conf; DNS will be blocked" >&2
+fi
+
 # NAT OUTPUT chain: everything not explicitly RETURNed is REDIRECTed to the
 # transparent listen port. Order matters — exemptions come before the catch-all.
 iptables -t nat -N AV_EGRESS
 # The proxy's own traffic (opened as PROXY_UID) must go straight out.
 iptables -t nat -A AV_EGRESS -m owner --uid-owner "$PROXY_UID" -j RETURN
-# Loopback and DNS are never proxied.
+# Loopback is never proxied.
 iptables -t nat -A AV_EGRESS -o lo -j RETURN
-iptables -t nat -A AV_EGRESS -p udp --dport 53 -j RETURN
-iptables -t nat -A AV_EGRESS -p tcp --dport 53 -j RETURN
+# DNS to the task resolvers only (see RESOLVERS above).
+for ns in $RESOLVERS; do
+  iptables -t nat -A AV_EGRESS -p udp -d "$ns" --dport 53 -j RETURN
+  iptables -t nat -A AV_EGRESS -p tcp -d "$ns" --dport 53 -j RETURN
+done
 # Port-mapped REDIRECT (see the design note atop proxy.mjs): each supported
 # original destination port P gets its own local listener at 15000 + P, so the
 # proxy can recover the original port without SO_ORIGINAL_DST. The port list
@@ -41,9 +53,17 @@ iptables -t nat -A OUTPUT -p tcp -j AV_EGRESS
 # allowlist entirely; clients fall back to TCP TLS, which IS enforced. Loopback
 # and DNS (UDP/53) stay open so name resolution keeps working.
 iptables -A OUTPUT -o lo -j ACCEPT
-iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+# Only UDP DNS to the task resolvers is allowed; all other UDP is dropped.
+for ns in $RESOLVERS; do
+  iptables -A OUTPUT -p udp -d "$ns" --dport 53 -j ACCEPT
+done
 iptables -A OUTPUT -p udp -j DROP
-echo "egress-proxy: iptables rules installed (port-mapped TCP redirect 80/443/465/993 ->15000+P, catch-all ->:${PROXY_PORT}, non-DNS UDP dropped)" >&2
+echo "egress-proxy: iptables rules installed (port-mapped TCP redirect 80/443/465/993 ->15000+P, catch-all ->:${PROXY_PORT}, DNS pinned to task resolvers, non-DNS UDP dropped)" >&2
+
+# Readiness marker for the app container's dependsOn:HEALTHY. Written only after
+# every egress rule above is installed (set -e aborts on any failure), so the
+# app cannot start — and therefore cannot egress — before enforcement is up.
+: > /tmp/av-egress-ready
 
 # Drop NET_ADMIN before running untrusted-adjacent Node: setpriv runs the proxy
 # as PROXY_UID with an empty capability set. The uid must match --uid-owner.

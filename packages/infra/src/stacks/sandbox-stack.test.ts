@@ -98,6 +98,37 @@ describe('SandboxStack', () => {
     });
   });
 
+  it('runs the app container as a fixed non-root uid (cannot setuid to the proxy uid)', () => {
+    // A root app in the shared network namespace could setuid(1337) and bypass
+    // the egress redirect that exempts the proxy uid (ADR 0003).
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([Match.objectLike({ Name: 'app', User: '10001' })]),
+    });
+  });
+
+  it('gates the app on the egress-proxy being HEALTHY (no unfiltered start-order window)', () => {
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'app',
+          DependsOn: Match.arrayWith([
+            Match.objectLike({ ContainerName: 'egress-proxy', Condition: 'HEALTHY' }),
+          ]),
+        }),
+      ]),
+    });
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'egress-proxy',
+          HealthCheck: Match.objectLike({
+            Command: ['CMD-SHELL', 'test -f /tmp/av-egress-ready'],
+          }),
+        }),
+      ]),
+    });
+  });
+
   it('gives the task role a 2h max session so injected creds outlive a long run', () => {
     template.hasResourceProperties('AWS::IAM::Role', {
       MaxSessionDuration: 7200,
