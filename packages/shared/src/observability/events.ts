@@ -39,6 +39,9 @@ export const LOG_EVENTS = [
   'sandbox.run.reconcile_failed',
   'sandbox.run.grants_injected',
   'sandbox.run.grant_denied',
+  // Per-image task definitions for custom manifest.image tags (Phase 4 step 03):
+  'sandbox.taskdef.registered',
+  'sandbox.taskdef.cache_persist_failed',
   // Run-duration watchdog (one-shot StopTask schedule armed by the launcher,
   // disarmed by the lifecycle handler when the task stops):
   'sandbox.watchdog.armed',

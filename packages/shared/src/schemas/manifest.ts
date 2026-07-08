@@ -14,6 +14,8 @@ const DEFAULT_FLUSH_SECONDS = 300;
 
 const DOMAIN_REGEX = /^(\*\.)?([a-z0-9-]+\.)+[a-z]{2,}$/i;
 const GITHUB_REPO_REGEX = /^[\w.-]+\/[\w.-]+$/;
+/** Docker image tag grammar (the part after ':'), max 128 chars. */
+const IMAGE_TAG_REGEX = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
 const SECRET_NAME_MAX = 64;
 const ENV_NAME_MAX = 64;
 /** Kebab-case: lowercase alphanumeric words separated by single hyphens. */
@@ -66,6 +68,14 @@ const RESERVED_SECRET_LEAVES: ReadonlySet<string> = new Set([
 export function isReservedSecretLeaf(name: string): boolean {
   return RESERVED_SECRET_LEAVES.has(name);
 }
+
+/**
+ * Sentinel `manifest.image` value meaning "run the platform's static task
+ * definition" (the base image as deployed by SandboxStack). Any other tag
+ * makes the launcher register a per-image clone of that definition — see
+ * services/sandbox-taskdef.ts.
+ */
+export const SANDBOX_BASE_IMAGE = 'sandbox-base';
 
 /**
  * Leaf name of a user-managed per-agent secret (the `<name>` in
@@ -190,8 +200,16 @@ function rejectEnvGrantCollision(
 export const ApplicationManifest = z
   .object({
     name: z.string().min(1).max(NAME_MAX),
-    /** Image URI (built FROM the sandbox base image). */
-    image: z.string().min(1),
+    /**
+     * Image TAG in the platform's sandbox-base ECR repo — not a free URI.
+     * `SANDBOX_BASE_IMAGE` ('sandbox-base') means the static task definition;
+     * any other tag must name an image built FROM the base image (and pushed
+     * to that repo) so the entrypoint contract holds: workspace sync,
+     * `timeout` wrapping, uid 10001.
+     */
+    image: z
+      .string()
+      .regex(IMAGE_TAG_REGEX, 'must be an image tag in the sandbox-base ECR repo, not a URI'),
     /** Overrides the image CMD; the base-image entrypoint always wraps it. */
     command: z.array(z.string().min(1)).min(1).optional(),
     /**

@@ -13,6 +13,7 @@ import {
   type AnthropicModel,
   type ApplicationManifest,
   type RunId,
+  type SandboxTaskDefCache,
   type UserId,
 } from '@agent-village/shared';
 import {
@@ -41,6 +42,9 @@ export type AgentPatch = Partial<{
   status: AgentStatus;
   manifest: ApplicationManifest | null;
   activeRunId: string | null;
+  // Launcher-only: caches the per-image task definition registered for a
+  // custom manifest.image. User patches never carry it (buildPatch whitelist).
+  sandboxTaskDef: SandboxTaskDefCache | null;
 }>;
 
 interface AgentItem {

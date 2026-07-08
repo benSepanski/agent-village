@@ -147,8 +147,10 @@ NagSuppressions.addStackSuppressions(runner, [
   {
     id: 'AwsSolutions-IAM5',
     reason:
-      'Per-agent secret ARNs are dynamic; DDB GSI access requires /index/* on the table ARN; scheduler invoke role is scoped to the runner Lambda only. ecs:RunTask is scoped to the single sandbox task-definition family (revision wildcard is required — RunTask cannot target a fixed revision sanely); ecs:StopTask and the per-run watchdog schedules are per-run resources with dynamic ids, so the sandbox cluster / watchdog group is the narrowest scope; account is wildcarded only so the suppression is deterministic during credential-free synth.',
+      'Per-agent secret ARNs are dynamic; DDB GSI access requires /index/* on the table ARN; scheduler invoke role is scoped to the runner Lambda only. ecs:RunTask/DescribeTaskDefinition are scoped to the single sandbox task-definition family (revision wildcard is required — RunTask cannot target a fixed revision sanely); ecs:RegisterTaskDefinition supports no resource-level scoping at all (hence Resource::*) — safety comes from iam:PassRole being pinned to the two sandbox roles, so a registered clone can only run with sandbox permissions; ecs:StopTask and the per-run watchdog schedules are per-run resources with dynamic ids, so the sandbox cluster / watchdog group is the narrowest scope; account is wildcarded only so the suppression is deterministic during credential-free synth.',
     appliesTo: [
+      // ecs:RegisterTaskDefinition (per-image task-definition clones).
+      'Resource::*',
       // The launcher resolves generic `secret` grants whose leaf names are
       // user-chosen, so the whole per-agent prefix is the narrowest scope;
       // reserved platform leaves are blocked in code (isReservedSecretLeaf).

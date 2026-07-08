@@ -56,10 +56,11 @@ bash -c "cp -R /workspace/gmail-agent /tmp/app && cd /tmp/app \
   && npm ci --omit=dev --no-audit --no-fund && node gmail-agent.mjs"
 ```
 
-`manifest.image` is currently informational — `RunTask` cannot override the
-container image, so the static base image (Node 22 + AWS CLI) runs the
-command against the synced workspace. That is exactly what this app relies
-on. `registry.npmjs.org` is in `egressAllow` only for the `npm ci`; vendor
+`manifest.image` is the `sandbox-base` sentinel, so the static base image
+(Node 22 + AWS CLI) runs the command against the synced workspace — exactly
+what this app relies on. Apps needing extra runtimes set a custom tag instead;
+see [`examples/python-sandbox-image`](../python-sandbox-image/).
+`registry.npmjs.org` is in `egressAllow` only for the `npm ci`; vendor
 `node_modules` into the workspace and drop both the `npm ci` and the registry
 domain if you prefer a tighter allowlist.
 

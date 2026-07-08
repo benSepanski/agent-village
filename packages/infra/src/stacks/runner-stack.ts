@@ -95,6 +95,11 @@ export class RunnerStack extends Stack {
     return `arn:aws:scheduler:${config.region}:*:schedule/${this.watchdogGroupName}/*`;
   }
 
+  /** Sandbox task-definition revision ARNs; account-wildcarded for credential-free synth. */
+  private sandboxTaskDefArnPattern(config: EnvConfig): string {
+    return `arn:aws:ecs:${config.region}:*:task-definition/${config.prefix}-sandbox:*`;
+  }
+
   /** Role EventBridge Scheduler assumes to fire the per-run `ecs:StopTask` watchdog. */
   private buildWatchdogStopTaskRole(config: EnvConfig): Role {
     const role = new Role(this, 'WatchdogStopTaskRole', {
@@ -270,10 +275,24 @@ export class RunnerStack extends Stack {
     fn.addToRolePolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
-        actions: ['ecs:RunTask'],
+        // DescribeTaskDefinition: the launcher clones the static definition
+        // when a manifest names a custom image tag (Phase 4 step 03) — same
+        // family scope as RunTask, so a clone can only be derived from (and
+        // run as) the sandbox family.
+        actions: ['ecs:RunTask', 'ecs:DescribeTaskDefinition'],
         // Account-wildcarded so the cdk-nag suppression is deterministic when
         // synthesizing without credentials; the family name is the real scope.
-        resources: [`arn:aws:ecs:${config.region}:*:task-definition/${config.prefix}-sandbox:*`],
+        resources: [this.sandboxTaskDefArnPattern(config)],
+      }),
+    );
+    fn.addToRolePolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ['ecs:RegisterTaskDefinition'],
+        // ECS supports no resource-level scoping for RegisterTaskDefinition.
+        // The real guardrail is the iam:PassRole pin below: whatever gets
+        // registered can only run with the two sandbox roles.
+        resources: ['*'],
       }),
     );
     fn.addToRolePolicy(

@@ -23,6 +23,24 @@ export type AgentStatus = z.infer<typeof AgentStatus>;
 const NAME_MAX = 80;
 const PROMPT_MAX = 20_000;
 
+/**
+ * Launcher-managed cache of the per-image task definition registered for a
+ * custom `manifest.image` (Phase 4 step 03). Internal: deliberately absent
+ * from CreateAgentInput/UpdateAgentInput, so users can never point an agent
+ * at an arbitrary task definition. Valid only while `image` matches the
+ * manifest and `baseArn` matches the deployed static definition (its revision
+ * changes on platform redeploy, invalidating the cache).
+ */
+export const SandboxTaskDefCache = z.object({
+  /** The manifest.image tag `arn` was registered for. */
+  image: z.string().min(1),
+  /** Static task-definition revision ARN the clone was derived from. */
+  baseArn: z.string().min(1),
+  /** Registered per-image task-definition ARN. */
+  arn: z.string().min(1),
+});
+export type SandboxTaskDefCache = z.infer<typeof SandboxTaskDefCache>;
+
 export const AgentSchema = z.object({
   id: AgentId,
   ownerSub: UserId,
@@ -40,6 +58,9 @@ export const AgentSchema = z.object({
   // Holds the in-flight run id while a sandbox run is active; enforces the
   // one-concurrent-run-per-agent invariant. Null when no run is in flight.
   activeRunId: z.string().nullable().default(null),
+  // Launcher-managed per-image task-definition cache; null until a custom
+  // manifest.image first launches. Never settable through the input schemas.
+  sandboxTaskDef: SandboxTaskDefCache.nullable().default(null),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

@@ -219,7 +219,7 @@ describe('executeRun (sandbox)', () => {
     ...agentFixture,
     manifest: {
       name: 'reporter',
-      image: 'acct.dkr.ecr.us-east-1.amazonaws.com/app:latest',
+      image: 'sandbox-base',
       schedule: null,
       timeoutMinutes: 30,
       egressAllow: [],

@@ -153,7 +153,7 @@ describe('updateAgent', () => {
   it('attaches a manifest', async () => {
     const manifest = {
       name: 'summarizer',
-      image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+      image: 'summarizer',
       schedule: null,
       timeoutMinutes: 30,
       egressAllow: ['api.notion.com'],

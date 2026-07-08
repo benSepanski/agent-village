@@ -109,7 +109,7 @@ describe('agents show', () => {
           status: 'active',
           manifest: {
             name: 'gmail-agent',
-            image: 'acct.dkr.ecr.us-east-1.amazonaws.com/app:latest',
+            image: 'sandbox-base',
             schedule: null,
             timeoutMinutes: 30,
             egressAllow: [],
@@ -265,7 +265,7 @@ describe('logs', () => {
 describe('agents manifest', () => {
   const manifest = {
     name: 'summarizer',
-    image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+    image: 'summarizer',
     schedule: null,
     egressAllow: ['api.notion.com'],
     grants: [],

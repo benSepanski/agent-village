@@ -16,7 +16,7 @@ phase's steps 01–02.
 | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | 01   | `manifest.env`: validated plain env map injected into the app container; gmail-agent's non-secret config moves off secret grants                                      | ✅     |
 | 02   | Agent-secrets API + CLI: `POST/GET/DELETE /agents/{id}/secrets[/{name}]` wiring `storeAgentSecret`; `village secrets set/list/rm`; agent delete cleans up its secrets | ✅     |
-| 03   | `manifest.image` honored: a non-base image tag launches via a per-image task definition cloned from the static one; Python image recipe example                       | 📋     |
+| 03   | `manifest.image` honored: a non-base image tag launches via a per-image task definition cloned from the static one; Python image recipe example                       | ✅     |
 
 ## Step notes
 
@@ -106,10 +106,19 @@ phase's steps 01–02.
   IAM5 suppression, dev + prod). Tests: unit tests on the clone function
   asserting the posture survives (uid, container names `app`/`egress-proxy` —
   the lifecycle handler and proxy override look containers up by name —
-  NET_ADMIN only on the proxy, dependsOn HEALTHY, log group), plus
+  NET*ADMIN only on the proxy, dependsOn HEALTHY, log group), plus
   launch-path tests for cache hit/miss/stale. A worked Python image recipe
   lands as `examples/python-sandbox-image/Dockerfile` (FROM base, installs
   python3 + pip, keeps USER 10001) — the apply-bot unblock in miniature.
+  \_As built:* the clone/resolve logic lives in its own module
+  (`packages/services/src/sandbox-taskdef.ts`) with the sentinel exported as
+  `SANDBOX_BASE_IMAGE`; the clone whitelists only the registrable fields so
+  the read-only Describe response fields are stripped by construction;
+  `ecs:DescribeTaskDefinition` shares the family-scoped RunTask statement
+  while `ecs:RegisterTaskDefinition` gets its own `Resource:*` statement +
+  documented IAM5 suppression; and the cache persist is best-effort (a lost
+  write costs one extra Describe+Register on the next run, logged as
+  `sandbox.taskdef.cache_persist_failed`).
 
 After each step: `pnpm lint && pnpm typecheck && pnpm test` stays green, and
 `pnpm --filter @agent-village/infra synth:dev` must succeed without AWS

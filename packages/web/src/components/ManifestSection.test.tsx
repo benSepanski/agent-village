@@ -33,7 +33,7 @@ describe('ManifestSection', () => {
       ...baseAgent,
       manifest: {
         name: 'summarizer',
-        image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+        image: 'summarizer-v3',
         schedule: '0 * * * *',
         timeoutMinutes: 15,
         egressAllow: ['api.notion.com', '*.github.com'],
@@ -57,7 +57,7 @@ describe('ManifestSection', () => {
     } as unknown as Agent;
     render(<ManifestSection agent={agent} />);
     expect(screen.getByText('summarizer')).toBeDefined();
-    expect(screen.getByText('123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest')).toBeDefined();
+    expect(screen.getByText('summarizer-v3')).toBeDefined();
     expect(screen.getByText('0 * * * *')).toBeDefined();
     expect(screen.getByText('15')).toBeDefined();
     expect(screen.getByText('60')).toBeDefined();

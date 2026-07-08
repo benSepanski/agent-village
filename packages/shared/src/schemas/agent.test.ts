@@ -64,6 +64,21 @@ describe('AgentSchema', () => {
   it('rejects names longer than 80 chars', () => {
     expect(() => AgentSchema.parse({ ...validAgent, name: 'a'.repeat(81) })).toThrow();
   });
+
+  it('defaults the launcher-managed sandboxTaskDef cache to null', () => {
+    expect(AgentSchema.parse(validAgent).sandboxTaskDef).toBeNull();
+  });
+
+  it('roundtrips a populated sandboxTaskDef cache', () => {
+    const cache = {
+      image: 'apply-bot',
+      baseArn: 'arn:aws:ecs:us-east-1:0:task-definition/agent-village-dev-sandbox:1',
+      arn: 'arn:aws:ecs:us-east-1:0:task-definition/agent-village-dev-sandbox:2',
+    };
+    expect(AgentSchema.parse({ ...validAgent, sandboxTaskDef: cache }).sandboxTaskDef).toEqual(
+      cache,
+    );
+  });
 });
 
 describe('CreateAgentInput', () => {
@@ -89,7 +104,7 @@ describe('CreateAgentInput', () => {
 describe('UpdateAgentInput', () => {
   const validManifest = {
     name: 'summarizer',
-    image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+    image: 'summarizer',
     schedule: null,
     egressAllow: ['api.notion.com'],
     grants: [],
@@ -120,6 +135,16 @@ describe('UpdateAgentInput', () => {
   it('rejects a malformed manifest', () => {
     expect(() => UpdateAgentInput.parse({ manifest: { ...validManifest, image: '' } })).toThrow();
   });
+
+  it('strips the internal sandboxTaskDef cache from a user patch', () => {
+    // The cache is launcher-managed; a user patch must never be able to point
+    // the agent at an arbitrary task definition.
+    const parsed = UpdateAgentInput.parse({
+      name: 'New name',
+      sandboxTaskDef: { image: 'x', baseArn: 'y', arn: 'z' },
+    });
+    expect(parsed).toEqual({ name: 'New name' });
+  });
 });
 
 describe('CreateAgentInput with manifest', () => {
@@ -133,7 +158,7 @@ describe('CreateAgentInput with manifest', () => {
   };
   const validManifest = {
     name: 'summarizer',
-    image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+    image: 'summarizer',
     schedule: null,
     egressAllow: ['api.notion.com'],
     grants: [],

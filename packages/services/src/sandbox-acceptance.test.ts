@@ -166,9 +166,12 @@ const SANDBOX_ENV = {
   AV_GATEWAY_URL: 'https://gw123.lambda-url.us-east-1.on.aws/',
 };
 
+// Stays on the 'sandbox-base' sentinel: the launcher resolves it to the static
+// task definition with zero Describe/Register calls, so the fake ECS client
+// only ever sees RunTask/StopTask.
 const manifest: ApplicationManifest = {
   name: 'acceptance-app',
-  image: 'acct.dkr.ecr.us-east-1.amazonaws.com/sandbox-base:latest',
+  image: 'sandbox-base',
   command: ['node', '/workspace/app.mjs'],
   schedule: null,
   timeoutMinutes: TIMEOUT_MINUTES,

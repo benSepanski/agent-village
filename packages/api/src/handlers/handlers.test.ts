@@ -143,7 +143,7 @@ describe('PATCH /agents/{id}', () => {
   it('parses a manifest body and forwards it to agent.updateAgent', async () => {
     const manifest = {
       name: 'summarizer',
-      image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+      image: 'summarizer',
       schedule: null,
       egressAllow: ['api.notion.com'],
       grants: [],

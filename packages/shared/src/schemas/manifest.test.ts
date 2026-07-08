@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { AgentId, UserId } from './ids.js';
-import { ApplicationManifest, EgressDomain, ToolGrant, workspacePrefix } from './manifest.js';
+import {
+  ApplicationManifest,
+  EgressDomain,
+  SANDBOX_BASE_IMAGE,
+  ToolGrant,
+  workspacePrefix,
+} from './manifest.js';
 
 const validManifest = {
   name: 'Notion digest',
-  image: '000000000000.dkr.ecr.us-east-1.amazonaws.com/digest:v3',
+  image: 'sandbox-base',
   schedule: '0 7 * * ? *',
 };
 
@@ -206,6 +212,26 @@ describe('ApplicationManifest', () => {
         grants: [{ kind: 'secret', name: 'gmail-app-password', env: 'GMAIL_APP_PASSWORD' }],
       }),
     ).toThrow(/collides with a secret grant env var/);
+  });
+
+  it('accepts image tags in the sandbox-base repo (incl. the sentinel)', () => {
+    for (const image of [SANDBOX_BASE_IMAGE, 'apply-bot', 'python3.12', 'v1.2_rc-3', '_internal']) {
+      expect(ApplicationManifest.parse({ ...validManifest, image }).image, image).toBe(image);
+    }
+  });
+
+  it('rejects image values that are not bare tags', () => {
+    for (const image of [
+      '', // empty
+      'acct.dkr.ecr.us-east-1.amazonaws.com/app:latest', // full URI
+      'repo/tag', // path separator
+      'app:latest', // name:tag
+      '-leading-hyphen', // tag grammar: must start [A-Za-z0-9_]
+      '.leading-dot',
+      'a'.repeat(129), // over the 128-char tag limit
+    ]) {
+      expect(() => ApplicationManifest.parse({ ...validManifest, image }), image).toThrow();
+    }
   });
 
   it('rejects an empty command array and out-of-bounds timeouts', () => {

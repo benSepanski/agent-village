@@ -13,6 +13,7 @@ import {
 } from '@agent-village/shared';
 import { logger } from './logger.js';
 import { buildProxyOverride } from './sandbox-egress.js';
+import { resolveTaskDefinition } from './sandbox-taskdef.js';
 import { armRunWatchdog } from './sandbox-watchdog.js';
 import {
   buildSesSessionStatements,
@@ -265,14 +266,23 @@ async function runTask(args: AppOverrideInput): Promise<string> {
 }
 
 /**
- * Launch a sandboxed application run on Fargate and return the task ARN. NOTE:
- * `manifest.image` is not yet honored — RunTask cannot override the container
- * image, so the static SandboxStack task definition (base image) runs the
- * manifest's command against the synced workspace. Registering a per-manifest
- * task definition is a documented follow-up.
+ * Launch a sandboxed application run on Fargate and return the task ARN.
+ * `manifest.image` picks the task definition: the 'sandbox-base' sentinel runs
+ * the static SandboxStack definition; any other tag runs a per-image clone of
+ * it (same family, roles, and proxy sidecar) registered on demand and cached
+ * on the agent record — see sandbox-taskdef.ts.
  */
 export async function launchSandboxRun(input: LaunchInput): Promise<string> {
-  const config = getSandboxConfig();
+  const base = getSandboxConfig();
+  const config = {
+    ...base,
+    taskDefinitionArn: await resolveTaskDefinition(
+      getEcsClient(),
+      input.agent,
+      input.manifest.image,
+      base.taskDefinitionArn,
+    ),
+  };
   const creds = await assumeScopedCreds(input, config);
   const grantEnv = await resolveGrantEnv(input.manifest, {
     agentId: input.agent.id,

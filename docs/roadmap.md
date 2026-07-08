@@ -42,10 +42,12 @@ forks. The platform prerequisites are now planned as
 [Phase 4 — apply-bot enablement](phases/phase-4-apply-bot-enablement.md); the
 remaining blockers:
 
-- **Python runtime in the sandbox.** The base image is Node
+- **Python runtime in the sandbox.** ✅ The base image is Node
   ([`sandbox-image/Dockerfile`](../packages/infra/sandbox-image/Dockerfile));
-  Phase 4 step 03 honors `manifest.image` (a tag in the base ECR repo) so a
-  Python-capable image built `FROM` base can run apply-bot.
+  Phase 4 step 03 honors `manifest.image` (a tag in the base ECR repo) via
+  per-image task definitions, and
+  [`examples/python-sandbox-image`](../examples/python-sandbox-image/) is the
+  build-and-push recipe for the Python image apply-bot needs.
 - **Web-search egress.** apply-bot searches job boards; its manifest needs the
   right `egressAllow` domains (e.g. the search backend it uses), reachable now
   that the proxy preserves ports and the metering gateway fronts Anthropic.
