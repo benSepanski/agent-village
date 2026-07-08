@@ -118,10 +118,51 @@ describe('sandbox entrypoint', () => {
     expect(upSyncs.length).toBeGreaterThanOrEqual(2);
   });
 
+  // GNU `timeout` ships in the sandbox image (and Linux CI) but not on stock
+  // macOS; the wrapper is only active when AV_TIMEOUT_SECONDS is set.
+  const hasTimeout = spawnSync('timeout', ['--help']).status === 0;
+
+  it.runIf(hasTimeout)(
+    'kills the app at AV_TIMEOUT_SECONDS, exits 124, and still syncs up',
+    { timeout: 15_000 },
+    () => {
+      const result = runEntrypoint(
+        ['bash', '-c', 'echo wip > "$AV_WORKSPACE_DIR/wip.txt"; sleep 30'],
+        { AV_TIMEOUT_SECONDS: '1' },
+      );
+      // 124 is GNU timeout's expiry status; the lifecycle maps it to timed_out.
+      expect(result.status).toBe(124);
+      expect(result.stdout).toContain('"exitCode":124');
+      expect(existsSync(path.join(fixture.remoteDir, 'wip.txt'))).toBe(true);
+      expect(result.stdout).toContain('"event":"sandbox.run.sync_up"');
+    },
+  );
+
+  it('runs the app unwrapped when AV_TIMEOUT_SECONDS is unset', () => {
+    const result = runEntrypoint(['bash', '-c', 'exit 0']);
+    expect(result.status).toBe(0);
+  });
+
   it('fails fast when AV_WORKSPACE_URI is missing', () => {
     const { AV_WORKSPACE_URI: _omitted, ...env } = fixture.env;
     const result = spawnSync('bash', [ENTRYPOINT, 'true'], { env, encoding: 'utf8' });
     expect(result.status).not.toBe(0);
     expect(stubCalls()).toHaveLength(0);
+  });
+});
+
+describe('timeout env lockstep (Phase 3 step 09)', () => {
+  // The kill-switch chain only holds if the env var name the launcher injects
+  // is exactly the one this script consumes — guard both sides by source.
+  it('the sandbox launcher injects the AV_TIMEOUT_SECONDS this entrypoint consumes', () => {
+    const script = readFileSync(ENTRYPOINT, 'utf8');
+    expect(script).toContain('TIMEOUT_SECONDS="${AV_TIMEOUT_SECONDS:-0}"');
+    const launcher = readFileSync(
+      fileURLToPath(new URL('../../services/src/sandbox.ts', import.meta.url)),
+      'utf8',
+    );
+    expect(launcher).toContain("name: 'AV_TIMEOUT_SECONDS'");
+    // Seconds, not minutes: the launcher converts manifest.timeoutMinutes.
+    expect(launcher).toContain('String(input.manifest.timeoutMinutes * SECONDS_PER_MINUTE)');
   });
 });

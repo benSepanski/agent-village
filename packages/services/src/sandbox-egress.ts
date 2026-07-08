@@ -20,13 +20,19 @@ export function awsBaseDomains(region: string): string[] {
 }
 
 /**
- * Full per-run allowlist delivered to the proxy: AWS base domains UNION the
- * manifest's egressAllow, de-duplicated (case-insensitively) and comma-joined.
+ * Full per-run allowlist delivered to the proxy: AWS base domains UNION
+ * platform-injected hosts (e.g. the Anthropic metering gateway, ADR 0004)
+ * UNION the manifest's egressAllow, de-duplicated (case-insensitively) and
+ * comma-joined.
  */
-export function buildEgressAllowlist(manifest: ApplicationManifest, region: string): string {
+export function buildEgressAllowlist(
+  manifest: ApplicationManifest,
+  region: string,
+  extraHosts: string[] = [],
+): string {
   const seen = new Set<string>();
   const ordered: string[] = [];
-  for (const domain of [...awsBaseDomains(region), ...manifest.egressAllow]) {
+  for (const domain of [...awsBaseDomains(region), ...extraHosts, ...manifest.egressAllow]) {
     const key = domain.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -39,10 +45,13 @@ export function buildEgressAllowlist(manifest: ApplicationManifest, region: stri
 export function buildProxyOverride(
   manifest: ApplicationManifest,
   region: string,
+  extraHosts: string[] = [],
 ): ContainerOverride {
   return {
     name: EGRESS_PROXY_CONTAINER,
-    environment: [{ name: 'AV_EGRESS_ALLOW', value: buildEgressAllowlist(manifest, region) }],
+    environment: [
+      { name: 'AV_EGRESS_ALLOW', value: buildEgressAllowlist(manifest, region, extraHosts) },
+    ],
   };
 }
 

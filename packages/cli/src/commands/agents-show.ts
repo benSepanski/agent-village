@@ -23,6 +23,12 @@ interface Run {
   createdAt: string;
 }
 
+interface MonthSpend {
+  month: string;
+  costUsd: number;
+  runCount: number;
+}
+
 function manifestSummary(manifest: ApplicationManifest | null): string {
   if (!manifest) return 'manifest: none';
   const grants = manifest.grants.map((g) => g.kind).join(', ') || 'none';
@@ -38,6 +44,7 @@ export async function agentsShow(agentId: string): Promise<string> {
   const c = await client();
   const agent = await c.get<Agent>(`/agents/${agentId}`);
   const { runs } = await c.get<{ runs: Run[] }>(`/agents/${agentId}/runs`);
+  const spend = await c.get<MonthSpend>(`/agents/${agentId}/spend`);
   const meta = kv([
     ['id', agent.id],
     ['name', agent.name],
@@ -45,6 +52,10 @@ export async function agentsShow(agentId: string): Promise<string> {
     ['schedule', agent.schedule ?? '—'],
     ['status', statusColor(agent.status)],
     ['spend', `$${agent.spendUsedUsd.toFixed(4)} / $${agent.spendLimitUsd.toFixed(2)}`],
+    [
+      'spend (month)',
+      `$${spend.costUsd.toFixed(4)} across ${spend.runCount} run${spend.runCount === 1 ? '' : 's'} (${spend.month})`,
+    ],
     ['createdAt', agent.createdAt],
   ]);
   const runsTable = table(

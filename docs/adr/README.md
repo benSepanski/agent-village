@@ -2,10 +2,12 @@
 
 Append-only log of architectural decisions. Never edit an existing ADR — write a new one that supersedes it.
 
-| ADR                                     | Title                                                 | Status   |
-| --------------------------------------- | ----------------------------------------------------- | -------- |
-| [0001](0001-typescript-cdk-dynamodb.md) | TypeScript everywhere, AWS CDK, DynamoDB single-table | Accepted |
-| [0002](0002-fargate-sandbox-runs.md)    | Sandboxed application runs on Fargate + S3 workspaces | Accepted |
+| ADR                                      | Title                                                            | Status   |
+| ---------------------------------------- | ---------------------------------------------------------------- | -------- |
+| [0001](0001-typescript-cdk-dynamodb.md)  | TypeScript everywhere, AWS CDK, DynamoDB single-table            | Accepted |
+| [0002](0002-fargate-sandbox-runs.md)     | Sandboxed application runs on Fargate + S3 workspaces            | Accepted |
+| [0003](0003-egress-proxy-sidecar.md)     | Egress proxy as a per-run Fargate sidecar                        | Accepted |
+| [0004](0004-metered-anthropic-access.md) | Metered Anthropic access for sandbox runs via a platform gateway | Accepted |
 
 ## Adding a new ADR
 

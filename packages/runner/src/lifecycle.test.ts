@@ -42,8 +42,26 @@ describe('lifecycle handler', () => {
         exitCode: 0,
         stoppedReason: 'Essential container in task exited',
         durationMs: 5000,
+        // Observed transitions forwarded for the run's persisted event timeline.
+        taskStartedAt: '2026-05-16T12:00:00.000Z',
+        taskStoppedAt: '2026-05-16T12:00:05.000Z',
       }),
     );
+  });
+
+  it('normalizes non-millisecond ECS timestamps and omits absent ones', async () => {
+    await handler({
+      detail: {
+        lastStatus: 'STOPPED',
+        startedBy: RUN_ID,
+        group: `av:${AGENT_ID}`,
+        stoppedAt: '2026-05-16T12:00:05Z',
+        containers: [{ name: 'app', exitCode: 0 }],
+      },
+    });
+    const input = runnerMock.finalizeSandboxRun.mock.calls[0]![0];
+    expect(input.taskStoppedAt).toBe('2026-05-16T12:00:05.000Z');
+    expect(input).not.toHaveProperty('taskStartedAt');
   });
 
   it('ignores non-STOPPED events', async () => {

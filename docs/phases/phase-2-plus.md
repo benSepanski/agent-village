@@ -20,4 +20,21 @@ preservation, generic secret grants, honest cost/observability).
 | 8     | Retention + audit | Retention policies + an audit-summarizer agent over old runs                                                                                                   |
 | 9+    | Daemon apps       | Hosting always-on agent daemons (e.g. OpenClaw): service-mode runtime instead of scheduled tasks, per-manifest task definitions so `manifest.image` is honored |
 
+Smaller backlog items surfaced by Phase 3, slotted into whichever phase touches
+them first:
+
+- **Plain (non-secret) manifest env** — manifests can only deliver
+  configuration via `secret` grants, so non-sensitive settings (an email
+  address, a sender allowlist, a model id) must be provisioned as Secrets
+  Manager secrets by hand and consume the grant cap; a `manifest.env` map of
+  validated plain values would remove that friction (found by the Gmail
+  reference app, step 08).
+- **CLI/API to store agent secrets** — `storeAgentSecret` exists in the data
+  layer but no user-facing command wires it; all grant secrets (typed and
+  generic) are provisioned out-of-band with the AWS CLI today.
+- **Gateway model pricing table** — the metering gateway 400s model ids it
+  cannot price; keeping the priced set current is a recurring chore (last
+  refreshed 2026-07: Fable 5 / Opus 4.8 / Sonnet 5 / Haiku 4.5 added, Opus 4.7
+  and Haiku prices corrected to public list).
+
 Each phase reuses the harness from Phase 0. No new top-level concerns unless an [ADR](../adr/README.md) justifies it.

@@ -13,6 +13,8 @@ const { user, agentSvc, runner } = vi.hoisted(() => ({
     executeRun: vi.fn(),
     listForAgent: vi.fn(),
     getRun: vi.fn(),
+    getRunLogs: vi.fn(),
+    monthToDateSpend: vi.fn(),
   },
 }));
 
@@ -32,6 +34,8 @@ import { handler as deleteHandler } from './agents-delete.js';
 import { handler as runNowHandler } from './agents-run-now.js';
 import { handler as runsListHandler } from './runs-list.js';
 import { handler as runsGetHandler } from './runs-get.js';
+import { handler as runsLogsHandler } from './runs-logs.js';
+import { handler as agentsSpendHandler } from './agents-spend.js';
 
 const SUB = 'cog-sub-abc';
 const AGENT_ID = '01HZ1234567890ABCDEFGHJKMN';
@@ -197,6 +201,20 @@ describe('GET /agents/{id}/runs', () => {
   });
 });
 
+describe('GET /agents/{id}/spend', () => {
+  it('returns the owner-scoped month-to-date summary', async () => {
+    runner.monthToDateSpend.mockResolvedValue({ month: '2026-07', costUsd: 0.12, runCount: 3 });
+    const res = await agentsSpendHandler(evt({ pathParameters: { id: AGENT_ID } }));
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(runner.monthToDateSpend).toHaveBeenCalledWith(SUB, AGENT_ID);
+    expect(JSON.parse((res as { body: string }).body)).toEqual({
+      month: '2026-07',
+      costUsd: 0.12,
+      runCount: 3,
+    });
+  });
+});
+
 describe('GET /agents/{id}/runs/{runId}', () => {
   it('returns the run', async () => {
     runner.getRun.mockResolvedValue({ id: RUN_ID });
@@ -208,5 +226,53 @@ describe('GET /agents/{id}/runs/{runId}', () => {
     runner.getRun.mockResolvedValue(null);
     const res = await runsGetHandler(evt({ pathParameters: { id: AGENT_ID, runId: RUN_ID } }));
     expect(res).toMatchObject({ statusCode: 404 });
+  });
+});
+
+describe('GET /agents/{id}/runs/{runId}/logs', () => {
+  const page = {
+    runStatus: 'running',
+    events: [{ at: '2026-07-01T12:00:01.000Z', source: 'app', message: 'hello' }],
+    nextToken: 'tok1',
+  };
+
+  it('returns one owner-scoped page of log events', async () => {
+    runner.getRunLogs.mockResolvedValue(page);
+    const res = await runsLogsHandler(evt({ pathParameters: { id: AGENT_ID, runId: RUN_ID } }));
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(runner.getRunLogs).toHaveBeenCalledWith(SUB, AGENT_ID, RUN_ID, {});
+    expect(JSON.parse((res as { body: string }).body)).toEqual(page);
+  });
+
+  it('parses pagination query parameters through to the service', async () => {
+    runner.getRunLogs.mockResolvedValue({ ...page, nextToken: null });
+    const res = await runsLogsHandler(
+      evt({
+        pathParameters: { id: AGENT_ID, runId: RUN_ID },
+        queryStringParameters: { nextToken: 'tokX', startTime: '1234', limit: '50' },
+      }),
+    );
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(runner.getRunLogs).toHaveBeenCalledWith(SUB, AGENT_ID, RUN_ID, {
+      nextToken: 'tokX',
+      startTimeMs: 1234,
+      limit: 50,
+    });
+  });
+
+  it('returns 400 on a malformed query parameter', async () => {
+    const res = await runsLogsHandler(
+      evt({
+        pathParameters: { id: AGENT_ID, runId: RUN_ID },
+        queryStringParameters: { startTime: 'not-a-number' },
+      }),
+    );
+    expect(res).toMatchObject({ statusCode: 400 });
+    expect(runner.getRunLogs).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 on an invalid run id', async () => {
+    const res = await runsLogsHandler(evt({ pathParameters: { id: AGENT_ID, runId: 'nope' } }));
+    expect(res).toMatchObject({ statusCode: 400 });
   });
 });

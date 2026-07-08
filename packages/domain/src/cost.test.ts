@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { actualCost, estimateCost, estimateSandboxCost, pricingFor } from './cost.js';
+import {
+  actualCost,
+  actualSandboxCost,
+  estimateCost,
+  estimateGatewayCall,
+  estimateSandboxCost,
+  pricingFor,
+} from './cost.js';
 
 describe('estimateCost', () => {
   it('uses output pricing for the given model and max-tokens cap', () => {
-    // Opus output is $75/Mtok; 1000 tokens = $0.075
-    expect(estimateCost('claude-opus-4-7', 1000)).toBeCloseTo(0.075, 6);
+    // Opus output is $25/Mtok; 1000 tokens = $0.025
+    expect(estimateCost('claude-opus-4-7', 1000)).toBeCloseTo(0.025, 6);
   });
 
   it('is cheaper for haiku than opus at the same cap', () => {
@@ -25,6 +32,17 @@ describe('actualCost', () => {
   it('is zero for zero usage', () => {
     expect(actualCost('claude-opus-4-7', { inputTokens: 0, outputTokens: 0 })).toBe(0);
   });
+
+  it('bills prompt-cache tokens at 1.25x (write) and 0.1x (read) the input rate', () => {
+    // Sonnet: $3/Mtok in. 1M cache-write -> $3.75; 1M cache-read -> $0.30.
+    const cost = actualCost('claude-sonnet-4-6', {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 1_000_000,
+      cacheReadInputTokens: 1_000_000,
+    });
+    expect(cost).toBeCloseTo(3.75 + 0.3, 6);
+  });
 });
 
 describe('estimateSandboxCost', () => {
@@ -43,6 +61,56 @@ describe('estimateSandboxCost', () => {
 
   it('is more expensive for a larger task', () => {
     expect(estimateSandboxCost(30, 512, 1024)).toBeGreaterThan(estimateSandboxCost(30, 256, 512));
+  });
+});
+
+describe('actualSandboxCost', () => {
+  it('matches the flat estimate when the task ran its full window', () => {
+    // 30 min = 1_800_000 ms
+    expect(actualSandboxCost(1_800_000, 256, 512)).toBeCloseTo(
+      estimateSandboxCost(30, 256, 512),
+      9,
+    );
+  });
+
+  it('bills a fraction of the estimate for an early exit', () => {
+    // 3 min actual vs a 30 min reservation → one tenth of the flat cost.
+    expect(actualSandboxCost(180_000, 256, 512)).toBeCloseTo(
+      estimateSandboxCost(30, 256, 512) / 10,
+      9,
+    );
+  });
+
+  it("applies Fargate's one-minute minimum to instant exits", () => {
+    const oneMinute = estimateSandboxCost(1, 256, 512);
+    expect(actualSandboxCost(0, 256, 512)).toBeCloseTo(oneMinute, 9);
+    expect(actualSandboxCost(1_000, 256, 512)).toBeCloseTo(oneMinute, 9);
+  });
+
+  it('can exceed the flat estimate when the task outlived its timeout', () => {
+    expect(actualSandboxCost(3_600_000, 256, 512)).toBeGreaterThan(
+      estimateSandboxCost(30, 256, 512),
+    );
+  });
+});
+
+describe('estimateGatewayCall', () => {
+  it('prices max output tokens plus chars/4 approximated input tokens', () => {
+    // Sonnet: 4000 chars -> 1000 input tokens @ $3/Mtok = 0.003;
+    // 500 max output tokens @ $15/Mtok = 0.0075.
+    expect(estimateGatewayCall('claude-sonnet-4-6', 500, 4000)).toBeCloseTo(0.0105, 6);
+  });
+
+  it('rounds partial input tokens up', () => {
+    // 1 char still reserves one input token.
+    const oneChar = estimateGatewayCall('claude-sonnet-4-6', 0, 1);
+    expect(oneChar).toBeCloseTo(3 / 1_000_000, 12);
+  });
+
+  it('costs at least the pure-output estimate for the same cap', () => {
+    expect(estimateGatewayCall('claude-opus-4-7', 1000, 4000)).toBeGreaterThan(
+      estimateCost('claude-opus-4-7', 1000),
+    );
   });
 });
 

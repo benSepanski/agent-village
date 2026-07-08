@@ -8,6 +8,11 @@ set -euo pipefail
 : "${AV_WORKSPACE_URI:?AV_WORKSPACE_URI is required (s3://bucket/ownerSub/agentId/)}"
 WORKSPACE_DIR="${AV_WORKSPACE_DIR:-/workspace}"
 FLUSH_SECONDS="${AV_FLUSH_SECONDS:-300}"
+# In-container kill switch (defense in depth behind the platform's StopTask
+# watchdog): the launcher sets AV_TIMEOUT_SECONDS to manifest.timeoutMinutes.
+# 0 disables the wrapper. TERM first, SIGKILL KILL_AFTER_SECONDS later.
+TIMEOUT_SECONDS="${AV_TIMEOUT_SECONDS:-0}"
+KILL_AFTER_SECONDS=30
 
 # Mirrors the structured-log envelope (event names are in the LOG_EVENTS enum).
 log() {
@@ -34,7 +39,13 @@ if [ "$FLUSH_SECONDS" != "0" ]; then
   FLUSHER_PID=$!
 fi
 
-"$@" &
+# `timeout` exits 124 on expiry, which the lifecycle handler maps to
+# `timed_out`; the final workspace sync below still runs before the task ends.
+if [ "$TIMEOUT_SECONDS" != "0" ]; then
+  timeout --kill-after="$KILL_AFTER_SECONDS" --signal=TERM "$TIMEOUT_SECONDS" "$@" &
+else
+  "$@" &
+fi
 APP_PID=$!
 trap 'kill -TERM "$APP_PID" 2> /dev/null || true' TERM INT
 

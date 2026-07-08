@@ -9,6 +9,7 @@ import type {
 } from '../api-client/types.js';
 import { AgentForm } from '../components/AgentForm.js';
 import { ManifestSection } from '../components/ManifestSection.js';
+import { MonthSpend } from '../components/MonthSpend.js';
 import { PromptScratchpad } from '../components/PromptScratchpad.js';
 import { RunControls } from '../components/RunControls.js';
 import { RunHistoryTable } from '../components/RunHistoryTable.js';
@@ -18,6 +19,21 @@ import { StatusBadge } from '../components/StatusBadge.js';
 interface RunNowResult {
   runId: string;
   status: string;
+}
+
+interface MonthSpendResult {
+  month: string;
+  costUsd: number;
+  runCount: number;
+}
+
+function MonthSpendSection({ agentId }: { agentId: string }) {
+  const { data } = useQuery<MonthSpendResult>({
+    queryKey: ['agents', agentId, 'spend'],
+    queryFn: () => api.get(`/agents/${agentId}/spend`),
+  });
+  if (!data) return null;
+  return <MonthSpend month={data.month} costUsd={data.costUsd} runCount={data.runCount} />;
 }
 
 function toPatch(input: CreateAgentInputType): UpdateAgentInputType {
@@ -78,6 +94,9 @@ function AgentOverview({ agent }: { agent: Agent }) {
       </header>
       <p>
         <SpendBar spendUsedUsd={agent.spendUsedUsd} spendLimitUsd={agent.spendLimitUsd} />
+      </p>
+      <p>
+        <MonthSpendSection agentId={agent.id} />
       </p>
       <AgentActions agent={agent} />
       <h3>Application manifest</h3>

@@ -4,6 +4,7 @@ import {
   GetSecretValueCommand,
   PutSecretValueCommand,
 } from '@aws-sdk/client-secrets-manager';
+import { agentSecretPrefix } from '@agent-village/domain';
 import { getSecretsClient } from './client.js';
 
 export interface StoredGrantSecret {
@@ -86,5 +87,33 @@ export function getGithubPat(idOrName: string): Promise<string> {
 }
 
 export function deleteGithubPat(idOrName: string): Promise<void> {
+  return deleteGrantSecret(idOrName);
+}
+
+/**
+ * Secrets Manager name of a generic named per-agent secret (`secret` grant):
+ * `agent-village/<env>/agents/<agentId>/<name>`. Derived from the canonical
+ * agent prefix so `assertGrantSecretOwned` accepts it by construction.
+ */
+export function agentSecretName(agentId: string, name: string, env: string): string {
+  return `${agentSecretPrefix(agentId, env)}${name}`;
+}
+
+/** Create or overwrite the generic named secret `name` for `agentId`. */
+export function storeAgentSecret(
+  agentId: string,
+  name: string,
+  plaintext: string,
+  env: string,
+): Promise<StoredGrantSecret> {
+  return storeGrantSecret(agentSecretName(agentId, name, env), plaintext);
+}
+
+/** Fetch a generic named per-agent secret by its secret name or ARN. */
+export function getAgentSecret(idOrName: string): Promise<string> {
+  return getGrantSecret(idOrName);
+}
+
+export function deleteAgentSecret(idOrName: string): Promise<void> {
   return deleteGrantSecret(idOrName);
 }

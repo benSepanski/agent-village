@@ -2,6 +2,7 @@ import { PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   RunSchema,
   type Run,
+  type RunEvent,
   type RunStatus,
   type AgentId,
   type RunId,
@@ -9,7 +10,7 @@ import {
 import { RunNotFoundError } from '@agent-village/domain';
 import { getConfig, getDocumentClient } from './client.js';
 import { isConditionalCheckFailed } from './errors-map.js';
-import { RUN_SK_PREFIX, agentPk, runGsi1sk, runSk, userPk } from './keys.js';
+import { RUN_SK_PREFIX, agentPk, runGsi1sk, runMonthSkPrefix, runSk, userPk } from './keys.js';
 
 const DEFAULT_LIMIT = 50;
 
@@ -70,6 +71,9 @@ export interface RunPatch {
   output?: string | null;
   costUsd?: number;
   taskArn?: string | null;
+  reservedUsd?: number | null;
+  /** Full replacement of the observed-events list (callers merge before patching). */
+  events?: RunEvent[];
 }
 
 function buildRunUpdate(patch: RunPatch): {
@@ -119,6 +123,116 @@ export async function patchRun(
     if (isConditionalCheckFailed(err)) throw new RunNotFoundError(agentId, runId);
     throw err;
   }
+}
+
+/**
+ * Atomically claim (and clear) a run's compute-spend reservation. Returns the
+ * reserved amount exactly once — every later (or concurrent) claim returns
+ * null. EventBridge stop events are at-least-once and may be processed
+ * concurrently, and a launch-failure refund can race the stop event of the
+ * aborted task; the conditional write makes whichever settlement path wins the
+ * only one that applies money.
+ */
+export async function claimRunReservation(
+  agentId: AgentId,
+  createdAt: string,
+  runId: RunId,
+): Promise<number | null> {
+  const { tableName } = getConfig();
+  try {
+    const res = await getDocumentClient().send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: { pk: agentPk(agentId), sk: runSk(createdAt, runId) },
+        UpdateExpression: 'SET reservedUsd = :nul',
+        ConditionExpression: 'attribute_exists(pk) AND attribute_type(reservedUsd, :num)',
+        ExpressionAttributeValues: { ':nul': null, ':num': 'N' },
+        ReturnValues: 'UPDATED_OLD',
+      }),
+    );
+    const prior = res.Attributes?.['reservedUsd'];
+    return typeof prior === 'number' ? prior : null;
+  } catch (err) {
+    if (isConditionalCheckFailed(err)) return null; // already claimed (or never reserved)
+    throw err;
+  }
+}
+
+export interface RunUsageDelta {
+  costUsd: number;
+  tokensIn: number;
+  tokensOut: number;
+}
+
+/**
+ * Atomically accumulate one LLM call's usage onto a run record. Used by the
+ * Anthropic metering gateway (ADR 0004): a sandbox run makes many calls, so
+ * this is an `ADD`, never a `SET` — concurrent calls cannot clobber each other.
+ */
+export async function addRunUsage(
+  agentId: AgentId,
+  createdAt: string,
+  runId: RunId,
+  delta: RunUsageDelta,
+): Promise<void> {
+  const { tableName } = getConfig();
+  try {
+    await getDocumentClient().send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: { pk: agentPk(agentId), sk: runSk(createdAt, runId) },
+        UpdateExpression: 'ADD costUsd :cost, tokensIn :tokensIn, tokensOut :tokensOut',
+        ConditionExpression: 'attribute_exists(pk)',
+        ExpressionAttributeValues: {
+          ':cost': delta.costUsd,
+          ':tokensIn': delta.tokensIn,
+          ':tokensOut': delta.tokensOut,
+        },
+      }),
+    );
+  } catch (err) {
+    if (isConditionalCheckFailed(err)) throw new RunNotFoundError(agentId, runId);
+    throw err;
+  }
+}
+
+export interface MonthCostSummary {
+  costUsd: number;
+  runCount: number;
+}
+
+/**
+ * Month-to-date spend for one agent: a key-condition range query over the
+ * runs created in `now`'s UTC calendar month (the sort key embeds the ISO
+ * `createdAt`, so `begins_with(RUN#YYYY-MM-)` is the whole month), summing
+ * each run's `costUsd`. Paginates, so no accumulator table is needed.
+ */
+export async function sumMonthCost(agentId: AgentId, now: Date): Promise<MonthCostSummary> {
+  const { tableName } = getConfig();
+  const client = getDocumentClient();
+  const summary: MonthCostSummary = { costUsd: 0, runCount: 0 };
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const res = await client.send(
+      new QueryCommand({
+        TableName: tableName,
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :month)',
+        ExpressionAttributeValues: {
+          ':pk': agentPk(agentId),
+          ':month': runMonthSkPrefix(now),
+        },
+        ProjectionExpression: 'costUsd',
+        ExclusiveStartKey: exclusiveStartKey,
+      }),
+    );
+    for (const item of res.Items ?? []) {
+      const cost = item['costUsd'];
+      summary.costUsd += typeof cost === 'number' ? cost : 0;
+      summary.runCount += 1;
+    }
+    exclusiveStartKey = res.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+  return summary;
 }
 
 export async function getOne(agentId: AgentId, runId: RunId): Promise<Run | null> {

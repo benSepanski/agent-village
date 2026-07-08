@@ -50,6 +50,7 @@ describe('ManifestSection', () => {
             repos: ['acme/repo'],
             secretName: 'agent-village/dev/agents/x/github',
           },
+          { kind: 'secret', name: 'gmail-app-password', env: 'GMAIL_APP_PASSWORD' },
         ],
       },
     } as unknown as Agent;
@@ -64,5 +65,6 @@ describe('ManifestSection', () => {
     expect(screen.getByText(/from agent@example.com/)).toBeDefined();
     expect(screen.getByText(/secret agent-village\/dev\/agents\/x\/notion/)).toBeDefined();
     expect(screen.getByText(/repos acme\/repo/)).toBeDefined();
+    expect(screen.getByText(/gmail-app-password as GMAIL_APP_PASSWORD/)).toBeDefined();
   });
 });

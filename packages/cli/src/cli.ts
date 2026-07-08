@@ -45,9 +45,10 @@ export function buildCli(): Command {
 
   program
     .command('logs <agentId> <runId>')
-    .description('Show the detail/timeline for one run')
-    .action(async (agentId: string, runId: string) => {
-      process.stdout.write(`${await logs(agentId, runId)}\n`);
+    .description('Show run detail plus its sandbox logs; --follow tails a running run')
+    .option('--follow', 'Poll for new log events until the run finishes')
+    .action(async (agentId: string, runId: string, opts: { follow?: boolean }) => {
+      process.stdout.write(`${await logs(agentId, runId, opts)}\n`);
     });
 
   const env = program.command('env').description('Local-environment diagnostics');

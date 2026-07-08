@@ -1,6 +1,7 @@
 import type { KeyValuePair } from '@aws-sdk/client-ecs';
 import { grantSecrets } from '@agent-village/data';
-import { assertGrantSecretOwned } from '@agent-village/domain';
+import { agentSecretPrefix, assertGrantSecretOwned } from '@agent-village/domain';
+import { isReservedSecretLeaf } from '@agent-village/shared';
 import type { ApplicationManifest, SesGrant, ToolGrant } from '@agent-village/shared';
 import { logger } from './logger.js';
 
@@ -80,10 +81,30 @@ async function githubEnv(grant: ToolGrant, ctx: GrantContext): Promise<KeyValueP
 }
 
 /**
+ * Generic `secret` grant: the manifest names only the kebab-case leaf; the full
+ * Secrets Manager name is derived under this agent's own prefix, so ownership
+ * holds by construction — the assert is kept as defense in depth against any
+ * future drift in how the name is built.
+ */
+async function secretEnv(grant: ToolGrant, ctx: GrantContext): Promise<KeyValuePair[]> {
+  if (grant.kind !== 'secret') return [];
+  // Re-checked at launch (not just in the manifest schema): a manifest stored
+  // before a leaf became reserved must not inject platform secrets — the
+  // Anthropic key in particular would bypass the metering gateway (ADR 0004).
+  if (isReservedSecretLeaf(grant.name)) {
+    throw new Error(`secret grant '${grant.name}' names a platform-managed secret`);
+  }
+  const secretName = `${agentSecretPrefix(ctx.agentId, ctx.env)}${grant.name}`;
+  assertOwnedOrLog(secretName, ctx);
+  const value = await grantSecrets.getAgentSecret(secretName);
+  return [{ name: grant.env, value }];
+}
+
+/**
  * Resolve manifest grants into app-container env for one run. Secret-backed
- * grants (Notion, GitHub) are fetched after an ownership assert; SES needs no
- * secret (it uses the injected STS creds) so only its convenience env is added.
- * Logs a metric of how many grants were injected.
+ * grants (Notion, GitHub, generic secret) are fetched after an ownership
+ * assert; SES needs no secret (it uses the injected STS creds) so only its
+ * convenience env is added. Logs a metric of how many grants were injected.
  */
 export async function resolveGrantEnv(
   manifest: ApplicationManifest,
@@ -93,6 +114,7 @@ export async function resolveGrantEnv(
   for (const grant of manifest.grants) {
     env.push(...(await notionEnv(grant, ctx)));
     env.push(...(await githubEnv(grant, ctx)));
+    env.push(...(await secretEnv(grant, ctx)));
   }
   env.push(...buildSesEnv(manifest));
   logger.info({

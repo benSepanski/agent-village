@@ -35,6 +35,32 @@ export function parseAllowlist(value) {
     .filter(Boolean);
 }
 
+// Original destination ports the proxy supports. Kept in lockstep with the
+// per-port REDIRECT rules in entrypoint.sh (original port P is redirected to
+// local listener 15000 + P — see the design note atop proxy.mjs). TLS ports
+// are classified by SNI; port 80 is the only plaintext-HTTP port.
+export const HTTP_PORT = 80;
+export const TLS_PORTS = Object.freeze([443, 465, 993]);
+export const SUPPORTED_PORTS = Object.freeze([HTTP_PORT, ...TLS_PORTS]);
+
+/**
+ * Classify the buffered head of a redirected stream given its original
+ * destination port (recovered from which port-mapped listener accepted the
+ * connection). TLS-with-SNI is honoured on any supported TLS port
+ * (443/465/993); plaintext HTTP Host is honoured on port 80 only. Anything
+ * else — TLS on 80, plaintext on a TLS port, unparsable bytes — is null.
+ * @param {Buffer} head
+ * @param {number} originalPort
+ * @returns {{ host: string, port: number } | null}
+ */
+export function resolveTarget(head, originalPort) {
+  const sni = parseSni(head);
+  if (sni) return TLS_PORTS.includes(originalPort) ? { host: sni, port: originalPort } : null;
+  const httpHost = parseHttpHost(head);
+  if (httpHost && originalPort === HTTP_PORT) return { host: httpHost, port: HTTP_PORT };
+  return null;
+}
+
 const TLS_HANDSHAKE = 0x16;
 const TLS_CLIENT_HELLO = 0x01;
 const EXT_SERVER_NAME = 0x0000;

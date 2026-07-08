@@ -3,7 +3,7 @@ import { PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { RunNotFoundError } from '@agent-village/domain';
 import { createDynamoMock, type DynamoMock } from '../../test-utils/dynamodb-mock.js';
 import { resetDocumentClient } from './client.js';
-import { append, getOne, listForAgent, patchRun } from './runs.js';
+import { addRunUsage, append, getOne, listForAgent, patchRun, sumMonthCost } from './runs.js';
 
 const SUB = 'cog-sub-abc';
 const AGENT_ID = '01HZ1234567890ABCDEFGHJKMN';
@@ -135,6 +135,82 @@ describe('patchRun', () => {
       .rejects(Object.assign(new Error('gone'), { name: 'ConditionalCheckFailedException' }));
     await expect(
       patchRun(AGENT_ID, runItem.createdAt, RUN_ID, { status: 'error' }),
+    ).rejects.toBeInstanceOf(RunNotFoundError);
+  });
+});
+
+describe('sumMonthCost', () => {
+  const NOW = new Date('2026-05-20T08:00:00.000Z');
+
+  it('queries the UTC month prefix and sums costUsd over all pages', async () => {
+    mock
+      .on(QueryCommand)
+      .resolvesOnce({
+        Items: [{ costUsd: 0.01 }, { costUsd: 0.002 }],
+        LastEvaluatedKey: { pk: 'x', sk: 'y' },
+      })
+      .resolvesOnce({ Items: [{ costUsd: 0.0005 }] });
+    const summary = await sumMonthCost(AGENT_ID, NOW);
+    expect(summary.costUsd).toBeCloseTo(0.0125, 9);
+    expect(summary.runCount).toBe(3);
+    const calls = mock.commandCalls(QueryCommand);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.args[0].input.KeyConditionExpression).toBe(
+      'pk = :pk AND begins_with(sk, :month)',
+    );
+    expect(calls[0]!.args[0].input.ExpressionAttributeValues).toEqual({
+      ':pk': `AGENT#${AGENT_ID}`,
+      ':month': 'RUN#2026-05-',
+    });
+    expect(calls[0]!.args[0].input.ProjectionExpression).toBe('costUsd');
+    expect(calls[1]!.args[0].input.ExclusiveStartKey).toEqual({ pk: 'x', sk: 'y' });
+  });
+
+  it('returns zeros for a month with no runs', async () => {
+    mock.on(QueryCommand).resolves({ Items: [] });
+    expect(await sumMonthCost(AGENT_ID, NOW)).toEqual({ costUsd: 0, runCount: 0 });
+  });
+
+  it('counts runs whose costUsd is missing without breaking the sum', async () => {
+    mock.on(QueryCommand).resolves({ Items: [{ costUsd: 0.01 }, {}] });
+    const summary = await sumMonthCost(AGENT_ID, NOW);
+    expect(summary.costUsd).toBeCloseTo(0.01, 9);
+    expect(summary.runCount).toBe(2);
+  });
+});
+
+describe('addRunUsage', () => {
+  it('accumulates cost and tokens with an atomic ADD on the run key', async () => {
+    mock.on(UpdateCommand).resolves({});
+    await addRunUsage(AGENT_ID, runItem.createdAt, RUN_ID, {
+      costUsd: 0.01,
+      tokensIn: 100,
+      tokensOut: 50,
+    });
+    const call = mock.commandCalls(UpdateCommand)[0]!;
+    expect(call.args[0].input.Key).toEqual({
+      pk: `AGENT#${AGENT_ID}`,
+      sk: `RUN#${runItem.createdAt}#${RUN_ID}`,
+    });
+    expect(call.args[0].input.UpdateExpression).toContain('ADD costUsd :cost');
+    expect(call.args[0].input.ConditionExpression).toContain('attribute_exists');
+    expect(call.args[0].input.ExpressionAttributeValues).toEqual({
+      ':cost': 0.01,
+      ':tokensIn': 100,
+      ':tokensOut': 50,
+    });
+  });
+
+  it('throws RunNotFoundError when the run row is missing', async () => {
+    mock
+      .on(UpdateCommand)
+      .rejects(Object.assign(new Error('gone'), { name: 'ConditionalCheckFailedException' }));
+    await expect(
+      addRunUsage(AGENT_ID, runItem.createdAt, RUN_ID, {
+        costUsd: 0.01,
+        tokensIn: 1,
+        tokensOut: 1,
+      }),
     ).rejects.toBeInstanceOf(RunNotFoundError);
   });
 });

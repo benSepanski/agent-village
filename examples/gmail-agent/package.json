@@ -1,0 +1,17 @@
+{
+  "name": "gmail-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "agent-village reference app: Gmail IMAP poll, metered Anthropic draft, SMTP reply",
+  "main": "gmail-agent.mjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "imapflow": "^1.4.3",
+    "mailparser": "^3.9.12",
+    "nodemailer": "^9.0.3"
+  }
+}

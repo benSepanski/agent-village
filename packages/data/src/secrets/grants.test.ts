@@ -8,12 +8,16 @@ import {
 import { createSecretsMock, type SecretsMock } from '../../test-utils/secrets-mock.js';
 import { resetSecretsClient } from './client.js';
 import {
+  agentSecretName,
+  deleteAgentSecret,
   deleteGithubPat,
   deleteNotionToken,
+  getAgentSecret,
   getGithubPat,
   getNotionToken,
   githubSecretName,
   notionSecretName,
+  storeAgentSecret,
   storeGithubPat,
   storeNotionToken,
 } from './grants.js';
@@ -39,6 +43,12 @@ describe('grant secret names', () => {
   it('derives per-agent notion + github names under the agent prefix', () => {
     expect(notionSecretName(AGENT_ID, ENV)).toBe('agent-village/dev/agents/agent-1/notion-token');
     expect(githubSecretName(AGENT_ID, ENV)).toBe('agent-village/dev/agents/agent-1/github-pat');
+  });
+
+  it('derives generic named secrets under the same agent prefix', () => {
+    expect(agentSecretName(AGENT_ID, 'gmail-app-password', ENV)).toBe(
+      'agent-village/dev/agents/agent-1/gmail-app-password',
+    );
   });
 });
 
@@ -70,6 +80,29 @@ describe('storeGithubPat', () => {
     const call = mock.commandCalls(CreateSecretCommand)[0]!;
     expect(call.args[0].input.Name).toBe(githubSecretName(AGENT_ID, ENV));
     expect(call.args[0].input.SecretString).toBe('ghp_secret');
+  });
+});
+
+describe('generic agent secrets', () => {
+  it('stores the secret under the derived per-agent name', async () => {
+    mock.on(CreateSecretCommand).resolves({ ARN });
+    const { arn } = await storeAgentSecret(AGENT_ID, 'gmail-app-password', 's3cret', ENV);
+    expect(arn).toBe(ARN);
+    const call = mock.commandCalls(CreateSecretCommand)[0]!;
+    expect(call.args[0].input.Name).toBe('agent-village/dev/agents/agent-1/gmail-app-password');
+    expect(call.args[0].input.SecretString).toBe('s3cret');
+  });
+
+  it('returns the secret string', async () => {
+    mock.on(GetSecretValueCommand).resolves({ SecretString: 's3cret' });
+    expect(await getAgentSecret(ARN)).toBe('s3cret');
+  });
+
+  it('force-deletes without recovery', async () => {
+    mock.on(DeleteSecretCommand).resolves({});
+    await deleteAgentSecret(ARN);
+    const call = mock.commandCalls(DeleteSecretCommand)[0]!;
+    expect(call.args[0].input.ForceDeleteWithoutRecovery).toBe(true);
   });
 });
 

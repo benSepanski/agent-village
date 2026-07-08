@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RunPersisted, RunSchema, RunStatus } from './run.js';
+import { RunEventSchema, RunPersisted, RunSchema, RunStatus } from './run.js';
 
 const validRun = {
   id: '01HZN0PQRSTVWXYZ0123456789',
@@ -113,5 +113,30 @@ describe('RunSchema (sandbox kind)', () => {
   it('rejects an inline run missing its model or systemPromptHash', () => {
     expect(() => RunSchema.parse({ ...validRun, model: null })).toThrow();
     expect(() => RunSchema.parse({ ...validRun, systemPromptHash: null })).toThrow();
+  });
+});
+
+describe('RunSchema (events)', () => {
+  it('defaults events to [] for legacy runs', () => {
+    expect(RunSchema.parse(validRun).events).toEqual([]);
+  });
+
+  it('parses observed lifecycle events in order', () => {
+    const parsed = RunSchema.parse({
+      ...validRun,
+      events: [
+        { event: 'agent.run.started', at: '2026-05-16T12:00:00.000Z' },
+        { event: 'agent.run.completed', at: '2026-05-16T12:00:01.234Z' },
+      ],
+    });
+    expect(parsed.events).toHaveLength(2);
+    expect(parsed.events[0]?.event).toBe('agent.run.started');
+  });
+
+  it('rejects an unknown event name or a non-ISO timestamp', () => {
+    expect(() =>
+      RunEventSchema.parse({ event: 'agent.run.imaginary', at: '2026-05-16T12:00:00.000Z' }),
+    ).toThrow();
+    expect(() => RunEventSchema.parse({ event: 'agent.run.started', at: 'yesterday' })).toThrow();
   });
 });

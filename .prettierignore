@@ -1,6 +1,7 @@
 # Generated / vendored files prettier should not touch.
-# `.gitignore` is already passed via `--ignore-path`, but the lockfile is committed.
+# `.gitignore` is already passed via `--ignore-path`, but the lockfiles are committed.
 pnpm-lock.yaml
+examples/gmail-agent/package-lock.json
 
 # Build artifacts (also in .gitignore but listed here for clarity).
 **/dist/

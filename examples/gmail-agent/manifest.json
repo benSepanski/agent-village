@@ -1,0 +1,18 @@
+{
+  "name": "gmail-agent",
+  "image": "sandbox-base",
+  "command": [
+    "bash",
+    "-c",
+    "cp -R /workspace/gmail-agent /tmp/app && cd /tmp/app && npm ci --omit=dev --no-audit --no-fund && node gmail-agent.mjs"
+  ],
+  "schedule": "cron(0/15 * * * ? *)",
+  "timeoutMinutes": 10,
+  "egressAllow": ["imap.gmail.com", "smtp.gmail.com", "registry.npmjs.org"],
+  "grants": [
+    { "kind": "secret", "name": "gmail-app-password", "env": "GMAIL_APP_PASSWORD" },
+    { "kind": "secret", "name": "gmail-address", "env": "GMAIL_ADDRESS" },
+    { "kind": "secret", "name": "gmail-allowed-senders", "env": "GMAIL_ALLOWED_SENDERS" }
+  ],
+  "flushIntervalSeconds": 0
+}
