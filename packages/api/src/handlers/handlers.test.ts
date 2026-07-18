@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { user, agentSvc, agentSecretsSvc, runner } = vi.hoisted(() => ({
+const { user, agentSvc, agentSecretsSvc, runner, workspaceSvc } = vi.hoisted(() => ({
   user: { ensureProfile: vi.fn() },
   agentSvc: {
     listMyAgents: vi.fn(),
@@ -21,6 +21,10 @@ const { user, agentSvc, agentSecretsSvc, runner } = vi.hoisted(() => ({
     getRunLogs: vi.fn(),
     monthToDateSpend: vi.fn(),
   },
+  workspaceSvc: {
+    listWorkspace: vi.fn(),
+    presignWorkspace: vi.fn(),
+  },
 }));
 
 vi.mock('@agent-village/services', () => ({
@@ -28,6 +32,7 @@ vi.mock('@agent-village/services', () => ({
   agent: agentSvc,
   agentSecrets: agentSecretsSvc,
   runner,
+  workspace: workspaceSvc,
   scheduling: {},
 }));
 
@@ -45,6 +50,8 @@ import { handler as agentsSpendHandler } from './agents-spend.js';
 import { handler as secretsSetHandler } from './agents-secrets-set.js';
 import { handler as secretsListHandler } from './agents-secrets-list.js';
 import { handler as secretsDeleteHandler } from './agents-secrets-delete.js';
+import { handler as workspaceListHandler } from './agents-workspace-list.js';
+import { handler as workspacePresignHandler } from './agents-workspace-presign.js';
 
 const SUB = 'cog-sub-abc';
 const AGENT_ID = '01HZ1234567890ABCDEFGHJKMN';
@@ -68,6 +75,7 @@ beforeEach(() => {
   Object.values(agentSvc).forEach((m) => m.mockReset());
   Object.values(agentSecretsSvc).forEach((m) => m.mockReset());
   Object.values(runner).forEach((m) => m.mockReset());
+  Object.values(workspaceSvc).forEach((m) => m.mockReset());
 });
 
 describe('GET /me', () => {
@@ -380,5 +388,87 @@ describe('DELETE /agents/{id}/secrets/{name}', () => {
     );
     expect(res).toMatchObject({ statusCode: 400 });
     expect(agentSecretsSvc.deleteAgentSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /agents/{id}/workspace', () => {
+  it('returns the listing', async () => {
+    const listing = {
+      entries: [{ path: 'notes.md', size: 12, lastModified: '2026-07-18T00:00:00.000Z' }],
+      truncated: false,
+    };
+    workspaceSvc.listWorkspace.mockResolvedValue(listing);
+    const res = await workspaceListHandler(evt({ pathParameters: { id: AGENT_ID } }));
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(workspaceSvc.listWorkspace).toHaveBeenCalledWith(SUB, AGENT_ID);
+    expect(JSON.parse((res as { body: string }).body)).toEqual(listing);
+  });
+
+  it('returns 400 on an invalid agent id', async () => {
+    const res = await workspaceListHandler(evt({ pathParameters: { id: 'not-a-ulid' } }));
+    expect(res).toMatchObject({ statusCode: 400 });
+    expect(workspaceSvc.listWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when the service reports the agent is not owned', async () => {
+    workspaceSvc.listWorkspace.mockRejectedValue(
+      Object.assign(new Error(`agent not found: ${AGENT_ID}`), { statusCode: 404 }),
+    );
+    const res = await workspaceListHandler(evt({ pathParameters: { id: AGENT_ID } }));
+    expect(res).toMatchObject({ statusCode: 404 });
+  });
+});
+
+describe('POST /agents/{id}/workspace/presign', () => {
+  const presigned = {
+    urls: [
+      {
+        path: 'notes.md',
+        op: 'get',
+        url: 'https://example/signed',
+        expiresAt: '2026-07-18T00:15:00.000Z',
+      },
+    ],
+  };
+
+  it('parses the body and forwards it to workspace.presignWorkspace', async () => {
+    workspaceSvc.presignWorkspace.mockResolvedValue(presigned);
+    const res = await workspacePresignHandler(
+      evt({
+        pathParameters: { id: AGENT_ID },
+        body: JSON.stringify({ files: [{ path: 'notes.md', op: 'get' }] }),
+      }),
+    );
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(workspaceSvc.presignWorkspace).toHaveBeenCalledWith(SUB, AGENT_ID, {
+      files: [{ path: 'notes.md', op: 'get' }],
+    });
+    expect(JSON.parse((res as { body: string }).body)).toEqual(presigned);
+  });
+
+  it('returns 400 on an empty files array without calling the service', async () => {
+    const res = await workspacePresignHandler(
+      evt({ pathParameters: { id: AGENT_ID }, body: JSON.stringify({ files: [] }) }),
+    );
+    expect(res).toMatchObject({ statusCode: 400 });
+    expect(workspaceSvc.presignWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 on a traversal path without calling the service', async () => {
+    const res = await workspacePresignHandler(
+      evt({
+        pathParameters: { id: AGENT_ID },
+        body: JSON.stringify({ files: [{ path: '../escape', op: 'get' }] }),
+      }),
+    );
+    expect(res).toMatchObject({ statusCode: 400 });
+    expect(workspaceSvc.presignWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 (not 500) on a malformed JSON body', async () => {
+    const res = await workspacePresignHandler(
+      evt({ pathParameters: { id: AGENT_ID }, body: '{"files":' }),
+    );
+    expect(res).toMatchObject({ statusCode: 400 });
   });
 });

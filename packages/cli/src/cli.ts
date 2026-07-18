@@ -8,6 +8,10 @@ import { run } from './commands/run.js';
 import { secretsList } from './commands/secrets-list.js';
 import { secretsRm } from './commands/secrets-rm.js';
 import { secretsSet } from './commands/secrets-set.js';
+import { workspaceLs } from './commands/workspace-ls.js';
+import { workspacePull } from './commands/workspace-pull.js';
+import { workspacePush } from './commands/workspace-push.js';
+import { workspaceRm } from './commands/workspace-rm.js';
 
 function registerSecrets(program: Command): void {
   const secrets = program
@@ -62,12 +66,45 @@ function registerAgents(program: Command): void {
     );
 }
 
+function registerWorkspace(program: Command): void {
+  const workspace = program
+    .command('workspace')
+    .description("An agent's durable S3 workspace (synced into /workspace on each run)");
+  workspace
+    .command('ls <agentId>')
+    .description('List files in the workspace')
+    .action(async (agentId: string) => {
+      process.stdout.write(`${await workspaceLs(agentId)}\n`);
+    });
+  workspace
+    .command('push <agentId> <localPath>')
+    .description('Upload a local file or directory into the workspace')
+    .option('--dest <subdir>', 'Workspace-relative destination prefix')
+    .action(async (agentId: string, localPath: string, opts: { dest?: string }) => {
+      process.stdout.write(`${await workspacePush(agentId, localPath, { dest: opts.dest })}\n`);
+    });
+  workspace
+    .command('pull <agentId> [destDir]')
+    .description('Download workspace files into a local directory (default: .)')
+    .option('--prefix <subdir>', 'Only pull entries under this workspace-relative prefix')
+    .action(async (agentId: string, destDir: string | undefined, opts: { prefix?: string }) => {
+      process.stdout.write(`${await workspacePull(agentId, destDir, { prefix: opts.prefix })}\n`);
+    });
+  workspace
+    .command('rm <agentId> <path>')
+    .description('Delete one file from the workspace')
+    .action(async (agentId: string, path: string) => {
+      process.stdout.write(`${await workspaceRm(agentId, path)}\n`);
+    });
+}
+
 export function buildCli(): Command {
   const program = new Command();
   program.name('village').description('Agent Village CLI');
 
   registerAgents(program);
   registerSecrets(program);
+  registerWorkspace(program);
 
   program
     .command('run <agentId>')

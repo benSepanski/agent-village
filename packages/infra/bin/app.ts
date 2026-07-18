@@ -40,6 +40,7 @@ const api = new ApiStack(app, `${config.prefix}-api`, {
   runnerFunction: runner.runnerFunction,
   scheduleGroupName: runner.scheduleGroupName,
   schedulerInvokeRole: runner.schedulerInvokeRole,
+  workspaceBucket: sandbox.workspaceBucket,
 });
 const web = new WebStack(app, `${config.prefix}-web`, { env: stackEnv, config });
 const monitoring = new MonitoringStack(app, `${config.prefix}-monitoring`, {
@@ -102,7 +103,7 @@ NagSuppressions.addStackSuppressions(api, [
   {
     id: 'AwsSolutions-IAM5',
     reason:
-      'Per-agent secret ARNs are dynamic — granting on the agent-village/<env>/agents/*/anthropic-key prefix is the narrowest pattern available. Same logic for DDB GSI access via /index/*, EventBridge Scheduler (resource-level perms not yet supported), Lambda invoke (qualifier wildcard), and secretsmanager:ListSecrets (no resource-level scoping exists; the handlers filter on the agent name prefix in code).',
+      "Per-agent secret ARNs are dynamic — granting on the agent-village/<env>/agents/*/anthropic-key prefix is the narrowest pattern available. Same logic for DDB GSI access via /index/*, EventBridge Scheduler (resource-level perms not yet supported), Lambda invoke (qualifier wildcard), and secretsmanager:ListSecrets (no resource-level scoping exists; the handlers filter on the agent name prefix in code). The workspace-presign handler resolves an app-chosen relative path into a key under the caller's own agent prefix at request time (WorkspacePath forbids traversal), so an object-level wildcard on the bucket is the narrowest static IAM grant; the presigned URL itself is scoped to the one resolved key handed back to the caller.",
     appliesTo: [
       'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/dev/agents/*',
       'Resource::arn:aws:secretsmanager:us-east-1:*:secret:agent-village/dev/agents/*/anthropic-key-*',
@@ -119,6 +120,11 @@ NagSuppressions.addStackSuppressions(api, [
       'Resource::arn:aws:logs:us-east-1:*:log-group:agent-village-dev-sandbox:*',
       'Resource::arn:aws:logs:us-east-1:*:log-group:agent-village-prod-sandbox',
       'Resource::arn:aws:logs:us-east-1:*:log-group:agent-village-prod-sandbox:*',
+      // Cross-stack construct reference (SandboxStack's workspace bucket) —
+      // logical id is derived from the construct path relative to its own
+      // stack, so it is identical for both dev and prod synths (same as the
+      // <TableCD117FA1.Arn> entry above).
+      'Resource::<WorkspaceBucket53E30B92.Arn>/*',
     ],
   },
   {

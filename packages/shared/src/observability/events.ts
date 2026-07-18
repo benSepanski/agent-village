@@ -12,6 +12,9 @@ export const LOG_EVENTS = [
   // User-managed per-agent secrets (Phase 4 step 02) — names only, never values:
   'agent.secret.stored',
   'agent.secret.deleted',
+  // Workspace API (Phase 5 step 01) — direct S3 access to an agent's durable prefix:
+  'agent.workspace.listed',
+  'agent.workspace.presigned',
   'agent.run.started',
   'agent.run.config_loaded',
   'agent.run.spend_reserved',
