@@ -1,4 +1,4 @@
-# Phase 5+ roadmap
+# Phase 6+ roadmap
 
 Sketches only — the phase-level slice of the [roadmap](../roadmap.md). Each
 phase gets its own detailed breakdown when it's next. Phase 2 (sandboxed
@@ -13,19 +13,22 @@ the sandbox-hardening items (kill switch, metered LLM spend, proxy port
 preservation, generic secret grants, honest cost/observability).
 
 The platform prerequisites for **apply-bot as a manifest app** (see the
-[roadmap](../roadmap.md#next-concrete-goal--apply-bot-as-a-manifest-app)) are
-now Phase 4 — [phase-4-apply-bot-enablement](phase-4-apply-bot-enablement.md):
-plain manifest env, an agent-secrets CLI/API, and `manifest.image` honored via
-per-image task definitions.
+[roadmap](../roadmap.md#next-concrete-goal--apply-bot-as-a-manifest-app)) were
+Phase 4 — [phase-4-apply-bot-enablement](phase-4-apply-bot-enablement.md)
+(**delivered**): plain manifest env, an agent-secrets CLI/API, and
+`manifest.image` honored via per-image task definitions. Phase 5 —
+[phase-5-app-dx](phase-5-app-dx.md) — makes the platform consumable from
+separate app repos (workspace API, `village login` + agent CRUD, installable
+CLI, scaffold, app-builder guide).
 
 | Phase | Theme             | Headline deliverable                                                                                                             |
 | ----- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| 5     | Notifications     | Per-user notification routing (email + future Slack); pause-on-failure policy                                                    |
-| 6     | Built-in tools    | Anthropic `web_search`, `code_execution` for inline (non-sandbox) agents                                                         |
-| 7     | More grant kinds  | Gmail / Calendar read-only via per-agent OAuth, as `ApplicationManifest` grants                                                  |
-| 8     | Multi-user        | Admin / viewer roles per agent; org-scoped Cognito groups                                                                        |
-| 9     | Retention + audit | Retention policies + an audit-summarizer agent over old runs                                                                     |
-| 10+   | Daemon apps       | Hosting always-on agent daemons (e.g. OpenClaw): service-mode runtime instead of scheduled tasks; per-manifest cpu/memory sizing |
+| 6     | Notifications     | Per-user notification routing (email + future Slack); pause-on-failure policy                                                    |
+| 7     | Built-in tools    | Anthropic `web_search`, `code_execution` for inline (non-sandbox) agents                                                         |
+| 8     | More grant kinds  | Gmail / Calendar read-only via per-agent OAuth, as `ApplicationManifest` grants                                                  |
+| 9     | Multi-user        | Admin / viewer roles per agent; org-scoped Cognito groups                                                                        |
+| 10    | Retention + audit | Retention policies + an audit-summarizer agent over old runs                                                                     |
+| 11+   | Daemon apps       | Hosting always-on agent daemons (e.g. OpenClaw): service-mode runtime instead of scheduled tasks; per-manifest cpu/memory sizing |
 
 Smaller backlog items, slotted into whichever phase touches them first:
 

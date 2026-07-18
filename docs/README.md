@@ -90,8 +90,9 @@ Each link below answers one question in one screen. Pattern-match against the qu
 - [Phase 1 — MVP](phases/phase-1-mvp.md) — delivered; the spec plus known deviations as shipped.
 - [Phase 2 — sandboxed application runs](phases/phase-2-sandbox-runs.md) — done; the step table shows what landed.
 - [Phase 3 — one-off applications, safely](phases/phase-3-application-platform.md) — done, including the post-review fixes.
-- [Phase 4 — apply-bot enablement](phases/phase-4-apply-bot-enablement.md) — planned; the current execution plan.
-- [Phase 5+ roadmap](phases/phase-2-plus.md) — sketched, not detailed.
+- [Phase 4 — apply-bot enablement](phases/phase-4-apply-bot-enablement.md) — done; `manifest.env`, agent secrets, `manifest.image`.
+- [Phase 5 — external app DX](phases/phase-5-app-dx.md) — the current execution plan: make the platform consumable from separate app repos.
+- [Phase 6+ roadmap](phases/phase-2-plus.md) — sketched, not detailed.
 - [Agent notes](notes/README.md) — informal session handoffs / working notes left for the next run.
 
 ## Where do I write forward-looking material?

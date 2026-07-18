@@ -11,8 +11,9 @@ the [roadmap](../roadmap.md); for informal agent working notes see
 | [1](phase-1-mvp.md)                  | ✅ done    | MVP — auth + Agent CRUD + scheduled Anthropic call + Run viewer.                   |
 | [2](phase-2-sandbox-runs.md)         | ✅ done    | Sandboxed application runs — Fargate + S3 workspaces + egress + grants.            |
 | [3](phase-3-application-platform.md) | ✅ done    | One-off apps, safely — metered LLM spend, kill switch, proxy ports, secret grants. |
-| [4](phase-4-apply-bot-enablement.md) | 📋 planned | apply-bot enablement — `manifest.env`, agent-secrets CLI/API, `manifest.image`.    |
-| [5+](phase-2-plus.md)                | 📋 sketch  | Notifications, more tools, multi-user, audit summarizer, daemon apps.              |
+| [4](phase-4-apply-bot-enablement.md) | ✅ done    | apply-bot enablement — `manifest.env`, agent-secrets CLI/API, `manifest.image`.    |
+| [5](phase-5-app-dx.md)               | 📋 planned | External app DX — workspace API, `village login`/CRUD, installable CLI, app guide. |
+| [6+](phase-2-plus.md)                | 📋 sketch  | Notifications, more tools, multi-user, audit summarizer, daemon apps.              |
 
 ## Working on a phase
 
