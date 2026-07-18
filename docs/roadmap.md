@@ -108,9 +108,12 @@ Deferred from the production-readiness audit (2026-07-18) — **all six closed i
   single `GATEWAY_TIMEOUT_MINUTES` knob.
 
 With these closed, the platform's guarantee surfaces (spend cap, sandbox
-isolation, concurrency, ops resilience) are production-ready; **re-implementing
-apply-bot on the platform is the next step** — [Phase 4](phases/phase-4-apply-bot-enablement.md)
-enablement is already done.
+isolation, concurrency, ops resilience) are production-ready.
+[Phase 4](phases/phase-4-apply-bot-enablement.md) enablement and
+[Phase 5](phases/phase-5-app-dx.md) external-app DX (CLI login/CRUD/workspace,
+installable CLI, scaffold, [app guide](app-development.md)) make the platform
+consumable from separate app repos; **re-implementing apply-bot in its own
+repo on the platform is the next step**.
 
 ## Doc scaffolding (established 2026-07-08)
 

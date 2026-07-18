@@ -2,6 +2,13 @@
 
 Each link below answers one question in one screen. Pattern-match against the question and click through.
 
+## I want to build an application on the platform
+
+[app-development.md](app-development.md) — the external app-builder guide: the
+app contract, the full CLI lifecycle from a separate repo, custom runtimes,
+and what the driving apps (apply-bot, D&D assistant, recipes bot, OpenClaw)
+can and cannot do today. Reference app: [`examples/gmail-agent`](../examples/gmail-agent/).
+
 ## I'm new — what do I read first?
 
 1. [Architecture topology](architecture/topology.md) — what AWS components exist and how requests flow through them.

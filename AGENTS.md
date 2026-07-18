@@ -11,6 +11,7 @@ Agent Village: personal AWS-hosted scheduler for autonomous AI agents. Users sig
 | You want to                                                    | Go to                                                                          |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | Find the right doc for any question                            | [docs/README.md](docs/README.md)                                               |
+| Build an application **on** the platform (external repo)       | [docs/app-development.md](docs/app-development.md)                             |
 | Understand the runtime topology                                | [docs/architecture/topology.md](docs/architecture/topology.md)                 |
 | Find the code for a given concern                              | [docs/architecture/codebase-map.md](docs/architecture/codebase-map.md)         |
 | See how key guarantees are enforced (cost, auth, isolation, …) | [docs/key-properties/](docs/key-properties/README.md)                          |

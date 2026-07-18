@@ -23,6 +23,18 @@ pnpm build                       # turbo build
 pnpm --filter @agent-village/infra synth:dev
 ```
 
+## Building an app on the platform
+
+Applications live in their own repos and drive everything through the
+`village` CLI (no AWS credentials needed): see
+[docs/app-development.md](docs/app-development.md). Reference app:
+[examples/gmail-agent](examples/gmail-agent/).
+
+```bash
+pnpm cli:pack                    # build an installable CLI tarball
+npm i -g <tarball>               # then: village login / init / agents / workspace / run / logs
+```
+
 ## Project documentation
 
 - [AGENTS.md](AGENTS.md) — the map. Read this first.
