@@ -66,8 +66,14 @@ function terminalEvents(existing: Run, input: FinalizeSandboxRunInput): RunEvent
  * actual compute + actual LLM cost. Failures are logged, never thrown: the
  * task already ran, and an unreconciled reservation only over-counts spend
  * (safe direction for a spend cap).
+ *
+ * Returns `true` only when THIS invocation won the atomic reservation claim —
+ * the same single-fire signal that settles spend exactly once — so the caller
+ * can gate the run-outcome EMF metric on it. A pre-read `alreadyFinalized`
+ * snapshot cannot: two concurrently redelivered stop events both read it as
+ * not-yet-finalized and would double-count the outcome.
  */
-async function reconcileComputeSpend(existing: Run, durationMs: number): Promise<void> {
+async function reconcileComputeSpend(existing: Run, durationMs: number): Promise<boolean> {
   // Claim the reservation atomically. A read-then-write marker is not enough:
   // EventBridge stop events are at-least-once and can be processed
   // CONCURRENTLY, and both deliveries would read the same pre-patch snapshot
@@ -87,9 +93,9 @@ async function reconcileComputeSpend(existing: Run, durationMs: number): Promise
       runId: existing.id,
       err,
     });
-    return;
+    return false;
   }
-  if (reservedUsd === null) return; // inline/legacy run, or another settlement won
+  if (reservedUsd === null) return false; // inline/legacy run, or another settlement won
   const { cpu, memMb } = sandboxTaskSize();
   const actualUsd = actualSandboxCost(durationMs, cpu, memMb);
   const deltaUsd = actualUsd - reservedUsd;
@@ -120,6 +126,7 @@ async function reconcileComputeSpend(existing: Run, durationMs: number): Promise
       err,
     });
   }
+  return true;
 }
 
 /**
@@ -177,7 +184,7 @@ export async function finalizeSandboxRun(input: FinalizeSandboxRunInput): Promis
       ? {}
       : { error: status === 'ok' ? null : reason || `exit code ${input.exitCode}` }),
   });
-  await reconcileComputeSpend(existing, input.durationMs);
+  const settled = await reconcileComputeSpend(existing, input.durationMs);
   await agentRepo.releaseActiveRun({
     agentId: input.agentId,
     ownerSub: existing.ownerSub,
@@ -189,8 +196,10 @@ export async function finalizeSandboxRun(input: FinalizeSandboxRunInput): Promis
     runId: input.runId,
     status,
     // Real EMF datapoint for the runs.error / spend-rejected alarms (Phase 3
-    // step 07). Emitted only on the first delivery of the stop event, so each
-    // sandbox run outcome is counted exactly once.
-    ...(alreadyFinalized(existing) ? {} : runOutcomeMetric(status)),
+    // step 07). Gated on the won reservation claim — the single-fire signal
+    // that also settles spend exactly once — so a concurrently redelivered stop
+    // event (both deliveries read the same pre-patch snapshot) still counts each
+    // sandbox run outcome exactly once.
+    ...(settled ? runOutcomeMetric(status) : {}),
   });
 }

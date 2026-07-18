@@ -83,25 +83,30 @@ Deferred from the Phase 3 review (2026-07-08), low severity, documented in the
   permanently 500s the agent's run-list read. `onLaunchFailure` now zeroes
   `costUsd` only when it wins the reservation claim.
 
-Deferred from the production-readiness audit (2026-07-18) — full context and fix
-sketches in [notes](notes/2026-07-18-production-readiness-audit.md); the
-higher-severity findings from that pass were fixed in the same branch:
+Deferred from the production-readiness audit (2026-07-18) — **all six closed in a
+2026-07-18 second pass** (details in
+[notes](notes/2026-07-18-production-readiness-audit.md)):
 
-- **[med] No DLQ / stuck-run reconciler** on the `SandboxTaskStopped` path — a
-  poison-pill or >24 h outage in the lifecycle finalizer wedges an agent's slot
-  with no self-healing. Wants a rule DLQ + a scheduled sweeper for runs stuck
-  `running` past `timeoutMinutes`.
-- **[med] Watchdog kill-switch is un-retried / un-alarmed** — a transient ECS
-  `StopTask` throttle silently drops the backstop. Wants `MaximumRetryAttempts>0`
-  - a DLQ + a watchdog-fire-failure alarm.
-- **[low] EMF run-outcome metric double-counts** on concurrent STOPPED-event
-  redelivery (spend still settles once; only counters inflate).
-- **[low] Deadline-abort refund** may return spend Anthropic already billed, and
-  the 502 is SDK-retryable.
-- **[low] IPv6 egress fail-open** — the proxy's iptables rules are IPv4-only;
-  latent until the sandbox VPC gains a dual-stack CIDR.
-- **[low] Gateway 5-min hard timeout** is not configurable — may need raising for
-  long apply-bot generations.
+- ~~**[med] No DLQ / stuck-run reconciler**~~ — DLQ on the `SandboxTaskStopped`
+  target + a `rate(5 min)` sweeper Lambda that finalizes overdue `running` runs
+  through the existing (idempotent) `finalizeSandboxRun` path.
+- ~~**[med] Watchdog kill-switch un-retried / un-alarmed**~~ — scheduler
+  `StopTask` now `MaximumRetryAttempts: 10` + a watchdog DLQ + DLQ/sweeper
+  alarms; the false already-stopped comment is corrected.
+- ~~**[low] EMF run-outcome metric double-counts**~~ — the outcome metric is
+  gated on the won reservation claim (single-fire), not the pre-read snapshot.
+- ~~**[low] Deadline-abort refund**~~ — an in-flight abort retains the
+  reservation and returns a non-retryable 499 instead of refund + retryable 502.
+- ~~**[low] IPv6 egress fail-open**~~ — `ip6tables -P OUTPUT DROP` (+ loopback /
+  DNS), guarded so a missing `ip6tables` still fails closed.
+- ~~**[low] Gateway 5-min hard timeout not configurable**~~ —
+  `AV_GATEWAY_UPSTREAM_TIMEOUT_MS` (default 290 s, clamped), driven off the
+  single `GATEWAY_TIMEOUT_MINUTES` knob.
+
+With these closed, the platform's guarantee surfaces (spend cap, sandbox
+isolation, concurrency, ops resilience) are production-ready; **re-implementing
+apply-bot on the platform is the next step** — [Phase 4](phases/phase-4-apply-bot-enablement.md)
+enablement is already done.
 
 ## Doc scaffolding (established 2026-07-08)
 

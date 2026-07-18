@@ -48,6 +48,9 @@ const monitoring = new MonitoringStack(app, `${config.prefix}-monitoring`, {
   runnerFunction: runner.runnerFunction,
   lifecycleFunction: runner.lifecycleFunction,
   gatewayFunction: runner.gatewayFunction,
+  sweeperFunction: runner.sweeperFunction,
+  lifecycleDlq: runner.lifecycleDlq,
+  watchdogDlq: runner.watchdogDlq,
 });
 
 // The runner Lambda assumes the sandbox task role (with a per-run session policy)
@@ -138,6 +141,11 @@ NagSuppressions.addStackSuppressions(runner, [
     id: 'AwsSolutions-L1',
     reason:
       'cdk-nag 2.34 has not yet been updated to recognize Node 22 as the latest Lambda runtime. We use NODEJS_22_X.',
+  },
+  {
+    id: 'AwsSolutions-SQS3',
+    reason:
+      'The lifecycle- and watchdog-DLQ queues are themselves dead-letter queues (the terminal sink for undeliverable stop events / failed StopTask fires), so they have no onward redrive of their own. Both are SSL-enforced (SQS4) and alarmed via the MonitoringStack.',
   },
   {
     id: 'AwsSolutions-IAM4',

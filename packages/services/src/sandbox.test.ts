@@ -59,6 +59,7 @@ const SANDBOX_ENV = {
   AV_ENV: 'dev',
   AV_WATCHDOG_GROUP: 'agent-village-dev-run-watchdogs',
   AV_WATCHDOG_ROLE_ARN: 'arn:aws:iam::0:role/agent-village-dev-run-watchdog',
+  AV_WATCHDOG_DLQ_ARN: 'arn:aws:sqs:us-east-1:0:agent-village-dev-run-watchdog-dlq',
   AV_GATEWAY_URL: 'https://gw123.lambda-url.us-east-1.on.aws/',
 };
 

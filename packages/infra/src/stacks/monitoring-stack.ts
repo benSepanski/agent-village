@@ -12,6 +12,7 @@ import { AnyPrincipal, Effect, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import type { IFunction } from 'aws-cdk-lib/aws-lambda';
 import { Topic } from 'aws-cdk-lib/aws-sns';
 import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
+import type { IQueue } from 'aws-cdk-lib/aws-sqs';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from '../../config/index.js';
 
@@ -22,6 +23,12 @@ export interface MonitoringStackProps extends StackProps {
   readonly lifecycleFunction: IFunction;
   /** Metering gateway (ADR 0004); enforces the hard spend cap for sandbox LLM calls. */
   readonly gatewayFunction: IFunction;
+  /** Stuck-run sweeper (Lambda-error alarm). */
+  readonly sweeperFunction: IFunction;
+  /** DLQ for stop events EventBridge could not deliver to the lifecycle Lambda. */
+  readonly lifecycleDlq: IQueue;
+  /** DLQ for watchdog StopTask fires that failed at fire time. */
+  readonly watchdogDlq: IQueue;
 }
 
 const RUNNER_DURATION_P95_MS = 30_000;
@@ -49,6 +56,7 @@ export class MonitoringStack extends Stack {
     this.buildFunctionAlarms(config, 'lifecycle', lifecycleFunction, action);
     this.buildFunctionAlarms(config, 'gateway', gatewayFunction, action);
     this.buildSpendAlarm(config, action);
+    this.buildResilienceAlarms(config, props, action);
 
     new CfnOutput(this, 'AlarmTopicArn', { value: this.alarmTopic.topicArn });
   }
@@ -159,6 +167,59 @@ export class MonitoringStack extends Stack {
       comparisonOperator: ComparisonOperator.GREATER_THAN_THRESHOLD,
       treatMissingData: TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(action);
+  }
+
+  /**
+   * Availability backstops (production-readiness): a stop event dead-lettered
+   * after the lifecycle finalizer could not be reached, a watchdog StopTask
+   * that failed to fire, and errors from the stuck-run sweeper. Any of these
+   * means a run's one-slot lifecycle needs a human look, so each pages the
+   * same alarm topic — modeled on the runner/spend alarms above.
+   */
+  private buildResilienceAlarms(
+    config: EnvConfig,
+    props: MonitoringStackProps,
+    action: SnsAction,
+  ): void {
+    this.buildDlqAlarm(
+      'LifecycleDlqAlarm',
+      `${config.prefix}-lifecycle-dlq`,
+      'A sandbox stop event was dead-lettered (lifecycle finalizer unreachable)',
+      props.lifecycleDlq,
+    ).addAlarmAction(action);
+
+    this.buildDlqAlarm(
+      'WatchdogDlqAlarm',
+      `${config.prefix}-watchdog-dlq`,
+      'A run-duration watchdog StopTask failed to fire and was dead-lettered',
+      props.watchdogDlq,
+    ).addAlarmAction(action);
+
+    new Alarm(this, 'SweeperErrorsAlarm', {
+      alarmName: `${config.prefix}-sweeper-errors`,
+      alarmDescription: 'Stuck-run sweeper Lambda error invocations',
+      metric: props.sweeperFunction.metricErrors({ period: Duration.minutes(5), statistic: 'Sum' }),
+      evaluationPeriods: 1,
+      threshold: 0,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(action);
+  }
+
+  private buildDlqAlarm(id: string, name: string, description: string, dlq: IQueue): Alarm {
+    return new Alarm(this, id, {
+      alarmName: name,
+      alarmDescription: description,
+      // Any message in a DLQ is a delivery/backstop failure worth a look.
+      metric: dlq.metricApproximateNumberOfMessagesVisible({
+        period: Duration.minutes(5),
+        statistic: 'Maximum',
+      }),
+      evaluationPeriods: 1,
+      threshold: 0,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    });
   }
 
   private buildSpendAlarm(config: EnvConfig, action: SnsAction): void {

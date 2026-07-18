@@ -13,6 +13,7 @@ const CLUSTER_ARN = 'arn:aws:ecs:us-east-1:0:cluster/agent-village-dev-sandbox';
 const WATCHDOG_ENV = {
   AV_WATCHDOG_GROUP: 'agent-village-dev-run-watchdogs',
   AV_WATCHDOG_ROLE_ARN: 'arn:aws:iam::0:role/agent-village-dev-run-watchdog',
+  AV_WATCHDOG_DLQ_ARN: 'arn:aws:sqs:us-east-1:0:agent-village-dev-run-watchdog-dlq',
 };
 
 const schedulerSend = vi.fn();
@@ -47,13 +48,20 @@ describe('armRunWatchdog', () => {
     expect(cmd.input.ActionAfterCompletion).toBe('DELETE');
     expect(cmd.input.Target?.Arn).toBe('arn:aws:scheduler:::aws-sdk:ecs:stopTask');
     expect(cmd.input.Target?.RoleArn).toBe(WATCHDOG_ENV.AV_WATCHDOG_ROLE_ARN);
-    // Firing after the task already stopped must not retry a doomed StopTask.
-    expect(cmd.input.Target?.RetryPolicy?.MaximumRetryAttempts).toBe(0);
+    // StopTask is retryable (success on an already-stopped task), so a transient
+    // throttle at fire time is retried, then dead-lettered — never silently lost.
+    expect(cmd.input.Target?.RetryPolicy?.MaximumRetryAttempts).toBeGreaterThan(0);
+    expect(cmd.input.Target?.DeadLetterConfig?.Arn).toBe(WATCHDOG_ENV.AV_WATCHDOG_DLQ_ARN);
     const input = JSON.parse(cmd.input.Target?.Input ?? '{}') as Record<string, string>;
     expect(input['cluster']).toBe(CLUSTER_ARN);
     expect(input['task']).toBe(TASK_ARN);
     // The reason is the lifecycle handler's timeout marker.
     expect(input['reason']).toContain('timed out');
+  });
+
+  it('throws when the dead-letter queue is not configured', async () => {
+    delete process.env['AV_WATCHDOG_DLQ_ARN'];
+    await expect(armRunWatchdog(ecs, armInput)).rejects.toThrow('AV_WATCHDOG_DLQ_ARN');
   });
 
   it('stops the task and rethrows when the schedule cannot be created', async () => {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { agentRepoMock, runRepoMock, watchdogMock } = vi.hoisted(() => ({
   agentRepoMock: { releaseActiveRun: vi.fn(), finalizeSpend: vi.fn() },
@@ -21,6 +21,7 @@ vi.mock('@agent-village/data', () => ({
 vi.mock('./sandbox-watchdog.js', () => watchdogMock);
 
 import { actualSandboxCost } from '@agent-village/domain';
+import { logger } from './logger.js';
 import { finalizeSandboxRun } from './sandbox-lifecycle.js';
 
 const AGENT_ID = '01HZ1234567890ABCDEFGHJKMN';
@@ -325,5 +326,56 @@ describe('finalizeSandboxRun — compute-spend reconciliation', () => {
     });
     expect(runRepoMock.patchRun).toHaveBeenCalledTimes(1);
     expect(agentRepoMock.releaseActiveRun).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('finalizeSandboxRun — run-outcome EMF metric', () => {
+  // A genuine sandbox run always holds a launch-time reservation; the metric is
+  // gated on winning its atomic claim so it fires exactly once per outcome —
+  // never on the pre-read snapshot, which two concurrent deliveries share.
+  const RESERVED = 0.0049365;
+  let infoSpy: ReturnType<typeof vi.spyOn<typeof logger, 'info'>>;
+
+  beforeEach(() => {
+    runRepoMock.getOne.mockResolvedValue({ ...existing, reservedUsd: RESERVED });
+    infoSpy = vi.spyOn(logger, 'info').mockImplementation((() => {}) as never);
+  });
+
+  afterEach(() => {
+    infoSpy.mockRestore();
+  });
+
+  // The EMF payload for a `runs.error` outcome is merged into the finalized log
+  // line (runOutcomeMetric spreads a `runs.error: 1` field); count those.
+  const finalizedMetricEmits = () =>
+    infoSpy.mock.calls
+      .map((call) => call[0] as Record<string, unknown>)
+      .filter((log) => log['event'] === 'sandbox.run.finalized' && log['runs.error'] === 1);
+
+  it('emits the outcome metric once when this invocation settles the run', async () => {
+    runRepoMock.claimRunReservation.mockResolvedValue(RESERVED);
+    await finalizeSandboxRun({ agentId: AGENT_ID, runId: RUN_ID, exitCode: 1, durationMs: 500 });
+    expect(agentRepoMock.finalizeSpend).toHaveBeenCalledTimes(1);
+    expect(finalizedMetricEmits()).toHaveLength(1);
+  });
+
+  it('settles once AND emits the metric once across a redelivered STOPPED event', async () => {
+    // EventBridge is at-least-once: the atomic claim hands the reservation to
+    // exactly one delivery. The loser must neither re-settle spend nor re-emit
+    // the outcome metric — gating on the pre-read snapshot double-counted it,
+    // because both deliveries read the run as not-yet-finalized.
+    runRepoMock.claimRunReservation
+      .mockResolvedValueOnce(RESERVED) // first delivery wins the claim
+      .mockResolvedValueOnce(null); // redelivery loses
+    await finalizeSandboxRun({ agentId: AGENT_ID, runId: RUN_ID, exitCode: 1, durationMs: 500 });
+    await finalizeSandboxRun({ agentId: AGENT_ID, runId: RUN_ID, exitCode: 1, durationMs: 500 });
+    expect(agentRepoMock.finalizeSpend).toHaveBeenCalledTimes(1);
+    expect(finalizedMetricEmits()).toHaveLength(1);
+  });
+
+  it('does not emit the metric when this delivery loses the reservation claim', async () => {
+    runRepoMock.claimRunReservation.mockResolvedValue(null);
+    await finalizeSandboxRun({ agentId: AGENT_ID, runId: RUN_ID, exitCode: 1, durationMs: 500 });
+    expect(finalizedMetricEmits()).toHaveLength(0);
   });
 });

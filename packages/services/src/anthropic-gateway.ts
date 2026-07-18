@@ -8,7 +8,18 @@ import {
 import { AnthropicModel, z, type Agent, type Run } from '@agent-village/shared';
 import { logger } from './logger.js';
 import { parseRunToken, tokenHashMatches } from './gateway-token.js';
+import { MESSAGES_PATH, forwardToAnthropic, isUpstreamAbort } from './gateway-upstream.js';
 import { extractUsage } from './gateway-usage.js';
+
+// The upstream-call concern lives in gateway-upstream.ts; re-export its public
+// surface so `services` consumers (and tests) keep importing it from here.
+export {
+  ANTHROPIC_UPSTREAM,
+  MESSAGES_PATH,
+  resolveUpstreamTimeoutMs,
+  setGatewayFetch,
+} from './gateway-upstream.js';
+export type { GatewayFetch, UpstreamResponse } from './gateway-upstream.js';
 
 /**
  * Anthropic metering gateway (ADR 0004). The sandbox app talks to this instead
@@ -19,18 +30,18 @@ import { extractUsage } from './gateway-usage.js';
  * (docs/data-model/spend-reservation.md).
  */
 
-export const ANTHROPIC_UPSTREAM = 'https://api.anthropic.com';
-export const MESSAGES_PATH = '/v1/messages';
-
 const HTTP_BAD_REQUEST = 400;
 const HTTP_UNAUTHORIZED = 401;
 const HTTP_PAYMENT_REQUIRED = 402;
 const HTTP_FORBIDDEN = 403;
 const HTTP_NOT_FOUND = 404;
+/** nginx's "client closed request": a 4xx the Anthropic SDK does NOT auto-retry
+ * (unlike 408/409/429 or any 5xx). Used for the in-flight deadline abort so a
+ * generation Anthropic may have already billed server-side isn't paid twice by a
+ * reflexive client retry. */
+const HTTP_CLIENT_CLOSED_REQUEST = 499;
 const HTTP_BAD_GATEWAY = 502;
 const FIRST_NON_SUCCESS_STATUS = 300;
-/** Upstream headers the sandbox's SDK sets that must survive the hop. */
-const FORWARD_HEADER_NAMES = ['anthropic-version', 'anthropic-beta'];
 /** Run statuses whose gateway token is still honored (task may still be alive). */
 const ACTIVE_RUN_STATUSES: readonly string[] = ['running', 'spend_limit_exceeded'];
 
@@ -56,24 +67,6 @@ export interface GatewayResponse {
   status: number;
   contentType: string;
   body: string;
-}
-
-/** Minimal structural slice of `fetch` so tests can inject a fake upstream. */
-export interface UpstreamResponse {
-  status: number;
-  headers: { get(name: string): string | null };
-  text(): Promise<string>;
-}
-export type GatewayFetch = (
-  url: string,
-  init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
-) => Promise<UpstreamResponse>;
-
-let fetchOverride: GatewayFetch | undefined;
-
-/** Test-only: inject (or clear with `undefined`) the upstream fetch. */
-export function setGatewayFetch(fn: GatewayFetch | undefined): void {
-  fetchOverride = fn;
 }
 
 // The platform-held Anthropic key, cached per secret ARN across invocations.
@@ -196,39 +189,6 @@ async function reserveOrReject(
   }
 }
 
-async function forwardToAnthropic(req: GatewayRequest, apiKey: string): Promise<GatewayResponse> {
-  const headers: Record<string, string> = {
-    'content-type': 'application/json',
-    'x-api-key': apiKey,
-  };
-  for (const name of FORWARD_HEADER_NAMES) {
-    const value = req.headers[name];
-    if (value !== undefined) headers[name] = value;
-  }
-  // Abort before the Lambda deadline so the reservation is refunded inside
-  // this invocation instead of leaking when the runtime kills us mid-await
-  // (long generations can outlive the function timeout). The thrown abort is
-  // handled by forwardAndReconcile's refund path.
-  let signal: AbortSignal | undefined;
-  if (req.deadlineMs !== undefined) {
-    const budgetMs = req.deadlineMs - Date.now();
-    if (budgetMs <= 0) throw new Error('gateway deadline exhausted before upstream call');
-    signal = AbortSignal.timeout(budgetMs);
-  }
-  const doFetch: GatewayFetch = fetchOverride ?? ((url, init) => fetch(url, init));
-  const res = await doFetch(`${ANTHROPIC_UPSTREAM}${MESSAGES_PATH}`, {
-    method: 'POST',
-    headers,
-    body: req.body,
-    ...(signal ? { signal } : {}),
-  });
-  return {
-    status: res.status,
-    contentType: res.headers.get('content-type') ?? 'application/json',
-    body: await res.text(),
-  };
-}
-
 interface CallContext {
   run: Run;
   agent: Agent;
@@ -291,6 +251,38 @@ async function reconcile(ctx: CallContext, upstream: GatewayResponse): Promise<v
   await recordRunUsage(ctx, costUsd, usage);
 }
 
+/**
+ * Turn an upstream fetch failure into a response, choosing the settlement
+ * direction by cause. An in-flight deadline/timeout abort may already be billed
+ * server-side, so it retains the worst-case reservation (safe for the cap) and
+ * answers with a status the Anthropic SDK does not auto-retry — never inviting a
+ * paid retry. A genuine connection failure never reached Anthropic, so it
+ * refunds and returns the retryable 502.
+ */
+async function respondToUpstreamFailure(ctx: CallContext, err: unknown): Promise<GatewayResponse> {
+  if (isUpstreamAbort(err)) {
+    logger.error({
+      event: 'gateway.call.deadline_aborted',
+      agentId: ctx.agent.id,
+      runId: ctx.run.id,
+      err,
+    });
+    return errorResponse(
+      HTTP_CLIENT_CLOSED_REQUEST,
+      'timeout_error',
+      'gateway aborted the generation at its time budget; not retried to avoid double billing',
+    );
+  }
+  logger.error({
+    event: 'gateway.call.upstream_failed',
+    agentId: ctx.agent.id,
+    runId: ctx.run.id,
+    err,
+  });
+  await refundEstimate(ctx);
+  return errorResponse(HTTP_BAD_GATEWAY, 'api_error', 'gateway could not reach the Anthropic API');
+}
+
 async function forwardAndReconcile(
   ctx: CallContext,
   req: GatewayRequest,
@@ -300,18 +292,7 @@ async function forwardAndReconcile(
     const apiKey = await platformKey(ctx.agent.anthropicSecretArn);
     upstream = await forwardToAnthropic(req, apiKey);
   } catch (err) {
-    logger.error({
-      event: 'gateway.call.upstream_failed',
-      agentId: ctx.agent.id,
-      runId: ctx.run.id,
-      err,
-    });
-    await refundEstimate(ctx);
-    return errorResponse(
-      HTTP_BAD_GATEWAY,
-      'api_error',
-      'gateway could not reach the Anthropic API',
-    );
+    return respondToUpstreamFailure(ctx, err);
   }
   logger.info({
     event: 'gateway.call.forwarded',
