@@ -32,6 +32,9 @@ export const LOG_EVENTS = [
   // Launcher + lifecycle events (emitted by the runner/lifecycle Lambdas):
   'sandbox.run.launched',
   'sandbox.run.launch_failed',
+  // The task launched, but persisting its bookkeeping taskArn failed. Logged
+  // and swallowed — the live task must NOT be treated as a launch failure.
+  'sandbox.run.taskarn_persist_failed',
   'sandbox.run.finalized',
   // Honest-cost reconciliation: the flat launch reservation is replaced by the
   // task's actual-duration Fargate cost when it stops (Phase 3 step 06):

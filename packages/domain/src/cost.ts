@@ -24,13 +24,21 @@ const PRICING: Record<AnthropicModel, ModelPricing> = {
 const ONE_MILLION = 1_000_000;
 
 /**
- * Worst-case cost for a single call. Used to reserve spend before the call.
- * Assumes the model emits exactly `maxOutputTokens` and uses negligible input
- * (the system prompt is small relative to output for our MVP agents).
+ * Worst-case cost for a single call. Used to reserve spend before the call, so
+ * it must UPPER-BOUND the actual cost or the hard spend cap can be breached:
+ * the model emits at most `maxOutputTokens`, and input is priced from
+ * `inputChars` (system prompt + user message). Omitting the input term let a
+ * large system prompt — allowed up to 20k chars (~5k tokens) — settle above the
+ * cap, since finalizeSpend applies the estimate→actual delta unconditionally.
  */
-export function estimateCost(model: AnthropicModel, maxOutputTokens: number): number {
+export function estimateCost(
+  model: AnthropicModel,
+  maxOutputTokens: number,
+  inputChars = 0,
+): number {
   const price = PRICING[model];
-  return (maxOutputTokens * price.outputPerMtok) / ONE_MILLION;
+  const inputTokens = Math.ceil(inputChars / APPROX_CHARS_PER_TOKEN);
+  return (inputTokens * price.inputPerMtok + maxOutputTokens * price.outputPerMtok) / ONE_MILLION;
 }
 
 export interface TokenUsage {
@@ -92,7 +100,17 @@ export function estimateGatewayCall(
 ): number {
   const price = PRICING[model];
   const inputTokens = Math.ceil(requestChars / APPROX_CHARS_PER_TOKEN);
-  return (inputTokens * price.inputPerMtok + maxOutputTokens * price.outputPerMtok) / ONE_MILLION;
+  // Reserve input at the 1h cache-WRITE ceiling (2x the input rate): any prompt
+  // token may be billed as a cache-creation write, which actualCost prices at
+  // up to 2x. Pricing the reservation's input at 1x under-reserved cache-heavy
+  // calls (exactly the apply-bot pattern: large 1h-TTL cached prompts), letting
+  // reconcile's positive delta settle above the hard cap. The gateway reconciles
+  // to real usage right after the call, so the headroom holds for one call only.
+  return (
+    (inputTokens * price.inputPerMtok * CACHE_WRITE_1H_MULTIPLIER +
+      maxOutputTokens * price.outputPerMtok) /
+    ONE_MILLION
+  );
 }
 
 // Fargate ARM64 / Graviton (us-east-1) public-list pricing — the task

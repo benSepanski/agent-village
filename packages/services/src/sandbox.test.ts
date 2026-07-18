@@ -166,8 +166,13 @@ describe('launchSandboxRun', () => {
     expect(proxy).toBeDefined();
     const allow = proxy?.environment?.find((e) => e.name === 'AV_EGRESS_ALLOW')?.value ?? '';
     const domains = allow.split(',');
-    // Base AWS domains keep `aws s3 sync` working.
-    expect(domains).toContain('s3.us-east-1.amazonaws.com');
+    // S3 is scoped to the workspace bucket's virtual-hosted hostnames only —
+    // NOT a `*.s3` / bare-`s3` wildcard that would reach any bucket.
+    expect(domains).toContain('workspace-bucket.s3.us-east-1.amazonaws.com');
+    expect(domains).not.toContain('s3.us-east-1.amazonaws.com');
+    expect(domains).not.toContain('*.s3.us-east-1.amazonaws.com');
+    expect(domains).not.toContain('s3.amazonaws.com');
+    // STS/logs base domains keep the entrypoint's `aws s3 sync` working.
     expect(domains).toContain('sts.us-east-1.amazonaws.com');
     // Union with the manifest's own allowlist.
     expect(domains).toContain('api.notion.com');

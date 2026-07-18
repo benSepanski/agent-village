@@ -115,6 +115,12 @@ describe('POST /agents', () => {
     const res = await createHandler(evt({ body: JSON.stringify({ name: 'A' }) }));
     expect(res).toMatchObject({ statusCode: 400 });
   });
+
+  it('returns 400 (not 500) on a malformed JSON body', async () => {
+    const res = await createHandler(evt({ body: '{"name":' }));
+    expect(res).toMatchObject({ statusCode: 400 });
+    expect(JSON.parse((res as { body: string }).body).error).toBe('invalid input');
+  });
 });
 
 describe('GET /agents/{id}', () => {

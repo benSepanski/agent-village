@@ -46,6 +46,8 @@ const monitoring = new MonitoringStack(app, `${config.prefix}-monitoring`, {
   env: stackEnv,
   config,
   runnerFunction: runner.runnerFunction,
+  lifecycleFunction: runner.lifecycleFunction,
+  gatewayFunction: runner.gatewayFunction,
 });
 
 // The runner Lambda assumes the sandbox task role (with a per-run session policy)

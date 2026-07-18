@@ -255,7 +255,9 @@ async function runTask(args: AppOverrideInput): Promise<string> {
       overrides: {
         containerOverrides: [
           buildContainerOverride(args),
-          buildProxyOverride(input.manifest, config.region, [gatewayHost(config.gatewayUrl)]),
+          buildProxyOverride(input.manifest, config.region, config.workspaceBucket, [
+            gatewayHost(config.gatewayUrl),
+          ]),
         ],
       },
     }),

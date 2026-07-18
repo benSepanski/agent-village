@@ -163,9 +163,6 @@ async function onLaunchFailure(
   await runRepo.patchRun(agent.id, run.createdAt, ctx.runId, {
     status: 'launch_failed',
     error: errMessage,
-    // Zero the flat estimate so the run doesn't report cost that was refunded
-    // (month-to-date sums costUsd).
-    costUsd: 0,
     // The task never really ran; kill its metering token so it can't authenticate.
     gatewayTokenHash: null,
     events: [...run.events, { event: 'sandbox.run.launch_failed', at: new Date().toISOString() }],
@@ -176,9 +173,20 @@ async function onLaunchFailure(
     runId: ctx.runId,
   });
   // Claim the reservation atomically: the stop event of a half-launched task
-  // can race this path, and only one settlement may move money.
+  // (RunTask succeeded, then watchdog-arming StopTask'd it) races this path via
+  // finalizeSandboxRun, and only one settlement may move money OR rewrite the
+  // run's costUsd. Zero costUsd ONLY on the winning claim: if reconcile wins
+  // instead, it shifts costUsd by an ADD delta, and a concurrent unconditional
+  // `costUsd = 0` SET here would let that delta land on 0 and drive the record
+  // negative — violating RunSchema.nonnegative and poisoning the agent's
+  // run-list read. Gating both writes on the single claim keeps them exclusive.
   const reservedUsd = await runRepo.claimRunReservation(agent.id, run.createdAt, ctx.runId);
-  if (reservedUsd !== null) await refund(ctx, agent, reservedUsd);
+  if (reservedUsd !== null) {
+    await refund(ctx, agent, reservedUsd);
+    // Refunded, so the run must not report the flat estimate (month-to-date
+    // sums costUsd). Safe now: winning the claim means reconcile did not.
+    await runRepo.patchRun(agent.id, run.createdAt, ctx.runId, { costUsd: 0 });
+  }
   logger.error({
     event: 'sandbox.run.launch_failed',
     ...runLog(ctx),
@@ -200,19 +208,30 @@ async function launchAndRecord(
   const run = buildSandboxRun(ctx, agent, estimateUsd, minted.tokenHash);
   await runRepo.append(run);
   logger.info({ event: 'agent.run.persisted', ...runLog(ctx) });
+  let taskArn: string;
   try {
-    const taskArn = await launchSandboxRun({
+    taskArn = await launchSandboxRun({
       agent,
       manifest,
       runId: ctx.runId,
       gatewayToken: minted.token,
     });
-    await runRepo.patchRun(agent.id, run.createdAt, ctx.runId, { taskArn });
-    return { runId: ctx.runId, status: 'running' };
   } catch (err) {
     await onLaunchFailure(ctx, agent, run, err instanceof Error ? err.message : String(err));
     throw err;
   }
+  // The task is LIVE and its watchdog is armed. Persisting taskArn is
+  // bookkeeping only (log-stream lookup in run-logs.ts); a failure here must
+  // NOT route to onLaunchFailure — that would release the one-run-per-agent
+  // slot while the task keeps running, letting a second concurrent run clobber
+  // the shared per-agent workspace. Log and swallow: the run still finalizes by
+  // runId when the lifecycle handler receives the ECS stop event.
+  try {
+    await runRepo.patchRun(agent.id, run.createdAt, ctx.runId, { taskArn });
+  } catch (err) {
+    logger.error({ event: 'sandbox.run.taskarn_persist_failed', ...runLog(ctx), err });
+  }
+  return { runId: ctx.runId, status: 'running' };
 }
 
 /**

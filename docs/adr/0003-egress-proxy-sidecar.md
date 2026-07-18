@@ -65,11 +65,17 @@ per-run sidecar named `egress-proxy`, not an always-on service.
 - **AWS base allowlist ∪ manifest.** The launcher
   ([`packages/services/src/sandbox-egress.ts`](../../packages/services/src/sandbox-egress.ts))
   delivers `AV_EGRESS_ALLOW` as a per-run container override: the AWS base
-  domains the workspace-sync entrypoint needs (`s3.<region>.amazonaws.com`,
-  `*.s3.<region>.amazonaws.com`, `s3.amazonaws.com`, `sts.<region>.amazonaws.com`,
-  `logs.<region>.amazonaws.com`) **union** the run's `manifest.egressAllow`.
+  domains the workspace-sync entrypoint needs — the workspace bucket's
+  virtual-hosted hostnames (`<bucket>.s3.<region>.amazonaws.com` and
+  `<bucket>.s3.amazonaws.com`), `sts.<region>.amazonaws.com`, and
+  `logs.<region>.amazonaws.com` — **union** the run's `manifest.egressAllow`.
   Without the AWS base set, `aws s3 sync` in the base-image entrypoint would be
-  blocked by the proxy.
+  blocked by the proxy. **S3 is scoped to the workspace bucket, not all of S3:**
+  the earlier `*.s3.<region>` / bare `s3.<region>` / global `s3.amazonaws.com`
+  wildcards matched every bucket (incl. path-style `s3.amazonaws.com/<any>`),
+  which — because IAM only scopes S3 _actions_, not anonymous HTTP PUTs to a
+  foreign bucket — gave a compromised app a secret-exfiltration channel that
+  bypassed the manifest allowlist (production-readiness audit, 2026-07-18).
 - **Security group.** `allowAllOutbound` stays `true`: iptables is the real
   enforcement, and tightening the SG would only need re-widening for DNS + AWS +
   allowlisted domains. The SG is defense-in-depth only; its description is

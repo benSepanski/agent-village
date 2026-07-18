@@ -77,8 +77,31 @@ Deferred from the Phase 3 review (2026-07-08), low severity, documented in the
 
 - CLI `--follow` drops same-millisecond duplicate log lines and can miss a
   late-ingested event whose timestamp is at/behind the cursor.
-- A narrow launch-failure-vs-stop-event race can momentarily show a negative
-  `Run.costUsd`.
+- ~~A narrow launch-failure-vs-stop-event race can momentarily show a negative
+  `Run.costUsd`.~~ **Fixed 2026-07-18** — the audit below found this was not
+  cosmetic: a negative `costUsd` violates `RunSchema.nonnegative()` and
+  permanently 500s the agent's run-list read. `onLaunchFailure` now zeroes
+  `costUsd` only when it wins the reservation claim.
+
+Deferred from the production-readiness audit (2026-07-18) — full context and fix
+sketches in [notes](notes/2026-07-18-production-readiness-audit.md); the
+higher-severity findings from that pass were fixed in the same branch:
+
+- **[med] No DLQ / stuck-run reconciler** on the `SandboxTaskStopped` path — a
+  poison-pill or >24 h outage in the lifecycle finalizer wedges an agent's slot
+  with no self-healing. Wants a rule DLQ + a scheduled sweeper for runs stuck
+  `running` past `timeoutMinutes`.
+- **[med] Watchdog kill-switch is un-retried / un-alarmed** — a transient ECS
+  `StopTask` throttle silently drops the backstop. Wants `MaximumRetryAttempts>0`
+  - a DLQ + a watchdog-fire-failure alarm.
+- **[low] EMF run-outcome metric double-counts** on concurrent STOPPED-event
+  redelivery (spend still settles once; only counters inflate).
+- **[low] Deadline-abort refund** may return spend Anthropic already billed, and
+  the 502 is SDK-retryable.
+- **[low] IPv6 egress fail-open** — the proxy's iptables rules are IPv4-only;
+  latent until the sandbox VPC gains a dual-stack CIDR.
+- **[low] Gateway 5-min hard timeout** is not configurable — may need raising for
+  long apply-bot generations.
 
 ## Doc scaffolding (established 2026-07-08)
 
