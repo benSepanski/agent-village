@@ -324,7 +324,13 @@ export async function executeRun(input: ExecuteRunInput): Promise<ExecuteRunResu
   // record finishes via the lifecycle handler, not inline here.
   if (agent.manifest) return executeSandboxRun(ctx, agent);
   await verifyReplay(ctx, agent);
-  const estimateUsd = estimateCost(agent.model, ctx.maxTokens);
+  // Price input from the actual prompt size so the reservation upper-bounds the
+  // finalized cost (a 20k-char system prompt is ~$0.05 of input on fable-5).
+  const estimateUsd = estimateCost(
+    agent.model,
+    ctx.maxTokens,
+    agent.systemPrompt.length + USER_MESSAGE.length,
+  );
   if (!(await reserve(ctx, agent, estimateUsd))) {
     const rejected = await appendRejected(ctx, agent);
     return { runId: rejected.id, status: rejected.status };

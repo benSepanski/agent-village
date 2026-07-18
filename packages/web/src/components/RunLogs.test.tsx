@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { RunLogs } from './RunLogs.js';
+import { RunLogs, nextPollInterval, type RunLogsPage } from './RunLogs.js';
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: { get: vi.fn() } }));
 vi.mock('../api-client/client.js', () => ({ api: apiMock }));
@@ -63,5 +63,27 @@ describe('RunLogs', () => {
     apiMock.get.mockRejectedValue(new Error('403'));
     renderPanel();
     await waitFor(() => expect(screen.getByRole('alert')).toBeDefined());
+  });
+});
+
+describe('nextPollInterval', () => {
+  const page = (runStatus: string): RunLogsPage => ({ runStatus, events: [], nextToken: null });
+
+  it('uses the initial running flag until the first page loads', () => {
+    expect(nextPollInterval(undefined, true)).toBe(5000);
+    expect(nextPollInterval([], true)).toBe(5000);
+    expect(nextPollInterval(undefined, false)).toBe(false);
+  });
+
+  it('keeps polling while the freshest page still reports a running run', () => {
+    expect(nextPollInterval([page('running')], true)).toBe(5000);
+  });
+
+  it('stops polling once any loaded page reports a terminal status', () => {
+    // The core fix: a run that finishes while the panel is open must stop the
+    // poll (it was seeded running=true) instead of hammering FilterLogEvents.
+    expect(nextPollInterval([page('running'), page('ok')], true)).toBe(false);
+    expect(nextPollInterval([page('timed_out')], true)).toBe(false);
+    expect(nextPollInterval([page('spend_limit_exceeded')], true)).toBe(false);
   });
 });

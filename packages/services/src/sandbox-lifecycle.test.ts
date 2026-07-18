@@ -101,6 +101,20 @@ describe('finalizeSandboxRun', () => {
     expect(agentRepoMock.releaseActiveRun).toHaveBeenCalled();
   });
 
+  it('nulls the gateway token hash on a normal terminal patch (token dies with the run)', async () => {
+    await finalizeSandboxRun({ agentId: AGENT_ID, runId: RUN_ID, exitCode: 0, durationMs: 5000 });
+    expect(runRepoMock.patchRun.mock.calls[0]![3]).toMatchObject({ gatewayTokenHash: null });
+  });
+
+  it('nulls the gateway token hash even for a breached run so its token stops authenticating', async () => {
+    // Regression: spend_limit_exceeded is both the mid-run breach signal and a
+    // terminal status; without this the leaked token stays in the gateway's
+    // ACTIVE_RUN_STATUSES forever (ADR 0004).
+    runRepoMock.getOne.mockResolvedValue({ ...existing, status: 'spend_limit_exceeded' });
+    await finalizeSandboxRun({ agentId: AGENT_ID, runId: RUN_ID, exitCode: 1, durationMs: 900 });
+    expect(runRepoMock.patchRun.mock.calls[0]![3]).toMatchObject({ gatewayTokenHash: null });
+  });
+
   it('deletes the run watchdog schedule when the task stops', async () => {
     await finalizeSandboxRun({ agentId: AGENT_ID, runId: RUN_ID, exitCode: 0, durationMs: 5000 });
     expect(watchdogMock.deleteRunWatchdog).toHaveBeenCalledWith(RUN_ID);
@@ -191,8 +205,8 @@ describe('finalizeSandboxRun — persisted run events (Phase 3 step 07)', () => 
 });
 
 describe('finalizeSandboxRun — compute-spend reconciliation', () => {
-  // Default task size (256 CPU / 512 MiB); a 30-minute reservation.
-  const RESERVED = 0.00617125;
+  // Default task size (256 CPU / 512 MiB); a 30-minute reservation at ARM64 rates.
+  const RESERVED = 0.0049365;
   const DURATION_MS = 180_000; // 3 minutes actual
   const ACTUAL = actualSandboxCost(DURATION_MS, 256, 512);
 

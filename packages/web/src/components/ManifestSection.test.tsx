@@ -33,10 +33,11 @@ describe('ManifestSection', () => {
       ...baseAgent,
       manifest: {
         name: 'summarizer',
-        image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+        image: 'summarizer-v3',
         schedule: '0 * * * *',
         timeoutMinutes: 15,
         egressAllow: ['api.notion.com', '*.github.com'],
+        env: { GMAIL_ADDRESS: 'agent@example.com', GMAIL_MAX_REPLIES: '3' },
         flushIntervalSeconds: 60,
         grants: [
           {
@@ -56,10 +57,12 @@ describe('ManifestSection', () => {
     } as unknown as Agent;
     render(<ManifestSection agent={agent} />);
     expect(screen.getByText('summarizer')).toBeDefined();
-    expect(screen.getByText('123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest')).toBeDefined();
+    expect(screen.getByText('summarizer-v3')).toBeDefined();
     expect(screen.getByText('0 * * * *')).toBeDefined();
     expect(screen.getByText('15')).toBeDefined();
     expect(screen.getByText('60')).toBeDefined();
+    expect(screen.getByText('GMAIL_ADDRESS=agent@example.com')).toBeDefined();
+    expect(screen.getByText('GMAIL_MAX_REPLIES=3')).toBeDefined();
     expect(screen.getByText('api.notion.com')).toBeDefined();
     expect(screen.getByText('*.github.com')).toBeDefined();
     expect(screen.getByText(/from agent@example.com/)).toBeDefined();

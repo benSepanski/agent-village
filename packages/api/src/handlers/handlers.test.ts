@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { user, agentSvc, runner } = vi.hoisted(() => ({
+const { user, agentSvc, agentSecretsSvc, runner } = vi.hoisted(() => ({
   user: { ensureProfile: vi.fn() },
   agentSvc: {
     listMyAgents: vi.fn(),
@@ -8,6 +8,11 @@ const { user, agentSvc, runner } = vi.hoisted(() => ({
     createAgent: vi.fn(),
     updateAgent: vi.fn(),
     deleteAgent: vi.fn(),
+  },
+  agentSecretsSvc: {
+    setAgentSecret: vi.fn(),
+    listAgentSecrets: vi.fn(),
+    deleteAgentSecret: vi.fn(),
   },
   runner: {
     executeRun: vi.fn(),
@@ -21,6 +26,7 @@ const { user, agentSvc, runner } = vi.hoisted(() => ({
 vi.mock('@agent-village/services', () => ({
   user,
   agent: agentSvc,
+  agentSecrets: agentSecretsSvc,
   runner,
   scheduling: {},
 }));
@@ -36,6 +42,9 @@ import { handler as runsListHandler } from './runs-list.js';
 import { handler as runsGetHandler } from './runs-get.js';
 import { handler as runsLogsHandler } from './runs-logs.js';
 import { handler as agentsSpendHandler } from './agents-spend.js';
+import { handler as secretsSetHandler } from './agents-secrets-set.js';
+import { handler as secretsListHandler } from './agents-secrets-list.js';
+import { handler as secretsDeleteHandler } from './agents-secrets-delete.js';
 
 const SUB = 'cog-sub-abc';
 const AGENT_ID = '01HZ1234567890ABCDEFGHJKMN';
@@ -57,6 +66,7 @@ function evt(over: Record<string, unknown> = {}): never {
 beforeEach(() => {
   user.ensureProfile.mockReset();
   Object.values(agentSvc).forEach((m) => m.mockReset());
+  Object.values(agentSecretsSvc).forEach((m) => m.mockReset());
   Object.values(runner).forEach((m) => m.mockReset());
 });
 
@@ -105,6 +115,12 @@ describe('POST /agents', () => {
     const res = await createHandler(evt({ body: JSON.stringify({ name: 'A' }) }));
     expect(res).toMatchObject({ statusCode: 400 });
   });
+
+  it('returns 400 (not 500) on a malformed JSON body', async () => {
+    const res = await createHandler(evt({ body: '{"name":' }));
+    expect(res).toMatchObject({ statusCode: 400 });
+    expect(JSON.parse((res as { body: string }).body).error).toBe('invalid input');
+  });
 });
 
 describe('GET /agents/{id}', () => {
@@ -133,7 +149,7 @@ describe('PATCH /agents/{id}', () => {
   it('parses a manifest body and forwards it to agent.updateAgent', async () => {
     const manifest = {
       name: 'summarizer',
-      image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+      image: 'summarizer',
       schedule: null,
       egressAllow: ['api.notion.com'],
       grants: [],
@@ -274,5 +290,95 @@ describe('GET /agents/{id}/runs/{runId}/logs', () => {
   it('returns 400 on an invalid run id', async () => {
     const res = await runsLogsHandler(evt({ pathParameters: { id: AGENT_ID, runId: 'nope' } }));
     expect(res).toMatchObject({ statusCode: 400 });
+  });
+});
+
+describe('POST /agents/{id}/secrets', () => {
+  const ARN = `arn:aws:secretsmanager:us-east-1:0:secret:agent-village/dev/agents/${AGENT_ID}/gmail-app-password-AbCdEf`;
+
+  it('stores the secret and responds with name + arn, never the value', async () => {
+    agentSecretsSvc.setAgentSecret.mockResolvedValue({ name: 'gmail-app-password', arn: ARN });
+    const res = await secretsSetHandler(
+      evt({
+        pathParameters: { id: AGENT_ID },
+        body: JSON.stringify({ name: 'gmail-app-password', value: 's3cret-value' }),
+      }),
+    );
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(agentSecretsSvc.setAgentSecret).toHaveBeenCalledWith(
+      SUB,
+      AGENT_ID,
+      'gmail-app-password',
+      's3cret-value',
+    );
+    const body = (res as { body: string }).body;
+    expect(JSON.parse(body)).toEqual({ name: 'gmail-app-password', arn: ARN });
+    expect(body).not.toContain('s3cret-value');
+  });
+
+  it('returns 400 on a reserved platform leaf without calling the service', async () => {
+    const res = await secretsSetHandler(
+      evt({
+        pathParameters: { id: AGENT_ID },
+        body: JSON.stringify({ name: 'anthropic-key', value: 'sk-ant-x' }),
+      }),
+    );
+    expect(res).toMatchObject({ statusCode: 400 });
+    expect(agentSecretsSvc.setAgentSecret).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 on a non-kebab-case name and never echoes the value', async () => {
+    const res = await secretsSetHandler(
+      evt({
+        pathParameters: { id: AGENT_ID },
+        body: JSON.stringify({ name: 'Not Valid!', value: 's3cret-value' }),
+      }),
+    );
+    expect(res).toMatchObject({ statusCode: 400 });
+    expect((res as { body: string }).body).not.toContain('s3cret-value');
+    expect(agentSecretsSvc.setAgentSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /agents/{id}/secrets', () => {
+  it('returns the secret names', async () => {
+    agentSecretsSvc.listAgentSecrets.mockResolvedValue(['gmail-app-password']);
+    const res = await secretsListHandler(evt({ pathParameters: { id: AGENT_ID } }));
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(agentSecretsSvc.listAgentSecrets).toHaveBeenCalledWith(SUB, AGENT_ID);
+    expect(JSON.parse((res as { body: string }).body)).toEqual({
+      secrets: ['gmail-app-password'],
+    });
+  });
+
+  it('returns 404 when the service reports the agent is not owned', async () => {
+    agentSecretsSvc.listAgentSecrets.mockRejectedValue(
+      Object.assign(new Error(`agent not found: ${AGENT_ID}`), { statusCode: 404 }),
+    );
+    const res = await secretsListHandler(evt({ pathParameters: { id: AGENT_ID } }));
+    expect(res).toMatchObject({ statusCode: 404 });
+  });
+});
+
+describe('DELETE /agents/{id}/secrets/{name}', () => {
+  it('returns 204 on success', async () => {
+    agentSecretsSvc.deleteAgentSecret.mockResolvedValue(undefined);
+    const res = await secretsDeleteHandler(
+      evt({ pathParameters: { id: AGENT_ID, name: 'gmail-app-password' } }),
+    );
+    expect(res).toMatchObject({ statusCode: 204 });
+    expect(agentSecretsSvc.deleteAgentSecret).toHaveBeenCalledWith(
+      SUB,
+      AGENT_ID,
+      'gmail-app-password',
+    );
+  });
+
+  it('returns 400 on a reserved leaf without calling the service', async () => {
+    const res = await secretsDeleteHandler(
+      evt({ pathParameters: { id: AGENT_ID, name: 'anthropic-key' } }),
+    );
+    expect(res).toMatchObject({ statusCode: 400 });
+    expect(agentSecretsSvc.deleteAgentSecret).not.toHaveBeenCalled();
   });
 });

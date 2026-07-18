@@ -7,7 +7,7 @@ import {
   estimateGatewayCall,
   estimateSandboxCost,
 } from '@agent-village/domain';
-import { AgentId, RunId } from '@agent-village/shared';
+import { AgentId, RunId, RunSchema } from '@agent-village/shared';
 import type { Agent, ApplicationManifest, Run } from '@agent-village/shared';
 
 /**
@@ -37,6 +37,12 @@ const state = vi.hoisted(() => ({
   ledger: { spendLimitUsd: 10, spendUsedUsd: 0, activeRunId: null as string | null },
   runs: new Map<string, Run>(),
   agent: null as unknown,
+  // Test hooks for reproducing concurrent races deterministically (both one-shot):
+  //  - failTaskArnPatch: reject the bookkeeping taskArn write after a live launch.
+  //  - patchHook: run right after a `launch_failed` status patch, to inject a
+  //    concurrent stop-event reconcile mid-onLaunchFailure.
+  failTaskArnPatch: false,
+  patchHook: null as null | ((run: Record<string, unknown>) => void),
 }));
 
 vi.mock('@agent-village/data', async () => {
@@ -88,10 +94,24 @@ vi.mock('@agent-village/data', async () => {
     // Clones on read: callers must not be able to mutate the store in place.
     getOne: (_agentId: string, runId: string) =>
       Promise.resolve(structuredClone(state.runs.get(runId) ?? null)),
-    patchRun: (agentId: string, _createdAt: string, runId: string, patch: object) => {
+    patchRun: (
+      agentId: string,
+      _createdAt: string,
+      runId: string,
+      patch: Record<string, unknown>,
+    ) => {
+      // Model a transient DynamoDB failure on the bookkeeping taskArn write.
+      if (state.failTaskArnPatch && 'taskArn' in patch && Object.keys(patch).length === 1) {
+        return Promise.reject(new Error('DynamoDB throttled'));
+      }
       const run = getRun(agentId, runId) as unknown as Record<string, unknown>;
       for (const [key, value] of Object.entries(patch)) {
         if (value !== undefined) run[key] = value;
+      }
+      if (patch['status'] === 'launch_failed' && state.patchHook) {
+        const hook = state.patchHook;
+        state.patchHook = null;
+        hook(run);
       }
       return Promise.resolve(structuredClone(run));
     },
@@ -166,14 +186,18 @@ const SANDBOX_ENV = {
   AV_GATEWAY_URL: 'https://gw123.lambda-url.us-east-1.on.aws/',
 };
 
+// Stays on the 'sandbox-base' sentinel: the launcher resolves it to the static
+// task definition with zero Describe/Register calls, so the fake ECS client
+// only ever sees RunTask/StopTask.
 const manifest: ApplicationManifest = {
   name: 'acceptance-app',
-  image: 'acct.dkr.ecr.us-east-1.amazonaws.com/sandbox-base:latest',
+  image: 'sandbox-base',
   command: ['node', '/workspace/app.mjs'],
   schedule: null,
   timeoutMinutes: TIMEOUT_MINUTES,
   egressAllow: [],
   grants: [],
+  env: {},
   flushIntervalSeconds: 0,
 };
 
@@ -216,6 +240,8 @@ beforeEach(() => {
   state.ledger.activeRunId = null;
   state.runs.clear();
   state.agent = agent;
+  state.failTaskArnPatch = false;
+  state.patchHook = null;
   setEcsClient({ send: ecsSend } as never);
   setStsClient({ send: stsSend } as never);
   setSchedulerClient({ send: schedulerSend } as never);
@@ -364,6 +390,15 @@ describe('acceptance: forced spend breach mid-run', () => {
     expect(redelivered.costUsd).toBeCloseTo(actualTotal, 12);
     expect(state.ledger.spendUsedUsd).toBeCloseTo(actualTotal, 12);
     expect(redelivered.events).toHaveLength(4);
+
+    // Regression (F1): a breached run is terminal, so its leaked token must
+    // stop authenticating — even though spend_limit_exceeded is also the
+    // still-alive breach status the gateway honors mid-run. Finalize nulled
+    // gatewayTokenHash, so a post-run replay is rejected outright (401), and
+    // the compute refund that dropped spendUsedUsd back under the limit can
+    // never be spent by the dead run's token.
+    expect(state.ledger.spendUsedUsd).toBeLessThan(state.ledger.spendLimitUsd);
+    expect((await handleGatewayRequest(gatewayRequest(token))).status).toBe(401);
   });
 
   it('rejects the launch outright when the flat reservation itself no longer fits', async () => {
@@ -438,8 +473,10 @@ describe('acceptance: forced hang killed at timeout', () => {
     expect(state.ledger.spendUsedUsd).toBeCloseTo(actualUsd, 12);
     expect(state.ledger.activeRunId).toBeNull();
 
-    // A killed run's gateway token is no longer honored.
-    expect((await handleGatewayRequest(gatewayRequest(token))).status).toBe(403);
+    // A killed run's gateway token is no longer honored: finalize nulled its
+    // hash, so authentication fails at the hash check (401) before the
+    // run-status check is even reached.
+    expect((await handleGatewayRequest(gatewayRequest(token))).status).toBe(401);
   });
 
   it('the in-container timeout fallback (exit 124) also finalizes as timed_out', async () => {
@@ -452,6 +489,59 @@ describe('acceptance: forced hang killed at timeout', () => {
       durationMs: TIMEOUT_MINUTES * 60_000,
     });
     expect(storedRun(runId).status).toBe('timed_out');
+    expect(state.ledger.activeRunId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 3 — post-launch bookkeeping failures must not corrupt the run slot
+// or the run record (production-readiness audit regressions).
+// ---------------------------------------------------------------------------
+
+describe('acceptance: post-launch failure handling', () => {
+  it('a taskArn-persist failure after a live launch keeps the run running and the slot held', async () => {
+    // The task is already running and its watchdog armed; only the bookkeeping
+    // taskArn write fails. Treating this as a launch failure would free the
+    // one-run slot on a LIVE task and let a second run clobber the workspace.
+    state.failTaskArnPatch = true;
+
+    const result = await executeSandboxRun(ctx, agent);
+
+    expect(result.status).toBe('running');
+    const run = storedRun(RUN_ID);
+    expect(run.status).toBe('running'); // NOT launch_failed
+    expect(run.gatewayTokenHash).not.toBeNull(); // live task can still authenticate
+    expect(state.ledger.activeRunId).toBe(RUN_ID); // slot stays held
+    // The reservation is untouched: the flat estimate still counts against spend.
+    expect(state.ledger.spendUsedUsd).toBeCloseTo(FLAT_ESTIMATE, 12);
+  });
+
+  it('a watchdog-arm failure racing the stop-event never persists a negative costUsd', async () => {
+    // Force onLaunchFailure by rejecting the watchdog CreateSchedule (the task
+    // was StopTask'd, so a STOPPED event is inbound). Reproduce the concurrent
+    // reconcile winning the reservation claim mid-onLaunchFailure: right after
+    // the launch_failed status patch, the stop-event's reconcile ADDs its
+    // (negative) delta. Before the fix, onLaunchFailure had already SET
+    // costUsd=0, so the delta drove it negative — poisoning RunSchema.parse and
+    // 500-ing the whole agent's run-list read.
+    schedulerSend.mockImplementation((cmd: unknown) =>
+      cmd instanceof CreateScheduleCommand
+        ? Promise.reject(new Error('scheduler throttled'))
+        : Promise.resolve({}),
+    );
+    const actualShort = actualSandboxCost(1_000, TASK_CPU, TASK_MEM_MB);
+    expect(actualShort).toBeLessThan(FLAT_ESTIMATE); // negative reconcile delta
+    state.patchHook = (run) => {
+      run['reservedUsd'] = null; // reconcile claimed the reservation
+      run['costUsd'] = (run['costUsd'] as number) + (actualShort - FLAT_ESTIMATE);
+    };
+
+    await expect(executeSandboxRun(ctx, agent)).rejects.toThrow();
+
+    const run = storedRun(RUN_ID);
+    expect(run.costUsd).toBeGreaterThanOrEqual(0);
+    // The poison was a nonnegative-schema violation surfacing on every read.
+    expect(() => RunSchema.parse(run)).not.toThrow();
     expect(state.ledger.activeRunId).toBeNull();
   });
 });

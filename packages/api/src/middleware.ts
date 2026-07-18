@@ -54,6 +54,16 @@ export function errorResponse(err: unknown): APIGatewayProxyResultV2 {
       body: JSON.stringify({ error: 'invalid input', issues: err.issues }),
     };
   }
+  // A malformed request body (JSON.parse before the Zod parse in a handler) is a
+  // client input error, not a server fault — surface it as 400, consistent with
+  // the ZodError path, rather than an opaque 500.
+  if (err instanceof SyntaxError) {
+    return {
+      statusCode: 400,
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ error: 'invalid input' }),
+    };
+  }
   if (isDomainError(err)) {
     return {
       statusCode: err.statusCode,

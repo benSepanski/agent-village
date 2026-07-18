@@ -18,25 +18,67 @@ import type { EnvConfig } from '../../config/index.js';
 export interface MonitoringStackProps extends StackProps {
   readonly config: EnvConfig;
   readonly runnerFunction: IFunction;
+  /** Async sandbox-run finalizer; its failure silently wedges an agent's slot. */
+  readonly lifecycleFunction: IFunction;
+  /** Metering gateway (ADR 0004); enforces the hard spend cap for sandbox LLM calls. */
+  readonly gatewayFunction: IFunction;
 }
 
 const RUNNER_DURATION_P95_MS = 30_000;
+// The gateway buffers a whole LLM response synchronously and the lifecycle
+// finalizer does a few DynamoDB writes; both should complete well under a minute.
+const ASYNC_LAMBDA_DURATION_P95_MS = 60_000;
 
 export class MonitoringStack extends Stack {
   public readonly alarmTopic: Topic;
 
   constructor(scope: Construct, id: string, props: MonitoringStackProps) {
     super(scope, id, props);
-    const { config, runnerFunction } = props;
+    const { config, runnerFunction, lifecycleFunction, gatewayFunction } = props;
 
     this.alarmTopic = this.buildAlarmTopic(config);
     this.buildBudget(config);
 
     const action = new SnsAction(this.alarmTopic);
     this.buildRunnerAlarms(config, runnerFunction, action);
+    // The lifecycle and gateway Lambdas are separate functions from the runner,
+    // so the runner alarms above never see their errors. Both are on the
+    // critical path — a wedged finalizer strands an agent's one-run slot, and a
+    // failing gateway breaks metered LLM access for every sandbox run — so each
+    // gets its own error + p95-duration alarm.
+    this.buildFunctionAlarms(config, 'lifecycle', lifecycleFunction, action);
+    this.buildFunctionAlarms(config, 'gateway', gatewayFunction, action);
     this.buildSpendAlarm(config, action);
 
     new CfnOutput(this, 'AlarmTopicArn', { value: this.alarmTopic.topicArn });
+  }
+
+  /** Error + p95-duration alarms for a critical async Lambda (lifecycle/gateway). */
+  private buildFunctionAlarms(
+    config: EnvConfig,
+    name: string,
+    fn: IFunction,
+    action: SnsAction,
+  ): void {
+    new Alarm(this, `${name}ErrorsAlarm`, {
+      alarmName: `${config.prefix}-${name}-errors`,
+      alarmDescription: `${name} Lambda error invocations`,
+      metric: fn.metricErrors({ period: Duration.minutes(5), statistic: 'Sum' }),
+      evaluationPeriods: 1,
+      threshold: 0,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(action);
+
+    new Alarm(this, `${name}DurationP95Alarm`, {
+      alarmName: `${config.prefix}-${name}-duration-p95`,
+      alarmDescription: `${name} Lambda p95 duration above 60s`,
+      metric: fn.metricDuration({ period: Duration.minutes(5), statistic: 'p95' }),
+      evaluationPeriods: 2,
+      threshold: ASYNC_LAMBDA_DURATION_P95_MS,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(action);
   }
 
   private buildAlarmTopic(config: EnvConfig): Topic {

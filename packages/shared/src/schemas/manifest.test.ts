@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { AgentId, UserId } from './ids.js';
-import { ApplicationManifest, EgressDomain, ToolGrant, workspacePrefix } from './manifest.js';
+import {
+  ApplicationManifest,
+  EgressDomain,
+  SANDBOX_BASE_IMAGE,
+  ToolGrant,
+  workspacePrefix,
+} from './manifest.js';
 
 const validManifest = {
   name: 'Notion digest',
-  image: '000000000000.dkr.ecr.us-east-1.amazonaws.com/digest:v3',
+  image: 'sandbox-base',
   schedule: '0 7 * * ? *',
 };
 
@@ -112,11 +118,12 @@ describe('ToolGrant', () => {
 });
 
 describe('ApplicationManifest', () => {
-  it('applies defaults for timeout, egress, grants, and flush interval', () => {
+  it('applies defaults for timeout, egress, grants, env, and flush interval', () => {
     const parsed = ApplicationManifest.parse(validManifest);
     expect(parsed.timeoutMinutes).toBe(30);
     expect(parsed.egressAllow).toEqual([]);
     expect(parsed.grants).toEqual([]);
+    expect(parsed.env).toEqual({});
     expect(parsed.flushIntervalSeconds).toBe(300);
   });
 
@@ -157,6 +164,74 @@ describe('ApplicationManifest', () => {
         ],
       }),
     ).toThrow(/duplicate secret grant env var/);
+  });
+
+  it('accepts a plain env map with UPPER_SNAKE_CASE keys', () => {
+    const parsed = ApplicationManifest.parse({
+      ...validManifest,
+      env: { GMAIL_ADDRESS: 'agent@example.com', GMAIL_MAX_REPLIES: '3' },
+    });
+    expect(parsed.env).toEqual({ GMAIL_ADDRESS: 'agent@example.com', GMAIL_MAX_REPLIES: '3' });
+  });
+
+  it('rejects env keys that are malformed or platform-reserved', () => {
+    for (const key of [
+      'gmail_address', // lowercase
+      'MY-VAR', // hyphen
+      'AV_WORKSPACE_URI', // platform contract prefix
+      'ANTHROPIC_API_KEY', // metering gateway prefix
+      'AWS_SECRET_ACCESS_KEY', // scoped STS creds prefix
+      'NOTION_TOKEN', // typed-grant name
+      'PATH', // entrypoint runtime var
+      'HTTPS_PROXY', // deliberately unset (ADR 0003)
+    ]) {
+      expect(
+        () => ApplicationManifest.parse({ ...validManifest, env: { [key]: 'v' } }),
+        key,
+      ).toThrow();
+    }
+  });
+
+  it('rejects empty and oversized env values', () => {
+    expect(() => ApplicationManifest.parse({ ...validManifest, env: { A: '' } })).toThrow();
+    expect(() =>
+      ApplicationManifest.parse({ ...validManifest, env: { A: 'x'.repeat(2049) } }),
+    ).toThrow();
+  });
+
+  it('rejects an env map with more than 20 entries', () => {
+    const env = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`VAR_${String(i)}`, 'v']));
+    expect(() => ApplicationManifest.parse({ ...validManifest, env })).toThrow(/at most 20/);
+  });
+
+  it('rejects an env key that collides with a secret grant env var', () => {
+    expect(() =>
+      ApplicationManifest.parse({
+        ...validManifest,
+        env: { GMAIL_APP_PASSWORD: 'not-actually-secret' },
+        grants: [{ kind: 'secret', name: 'gmail-app-password', env: 'GMAIL_APP_PASSWORD' }],
+      }),
+    ).toThrow(/collides with a secret grant env var/);
+  });
+
+  it('accepts image tags in the sandbox-base repo (incl. the sentinel)', () => {
+    for (const image of [SANDBOX_BASE_IMAGE, 'apply-bot', 'python3.12', 'v1.2_rc-3', '_internal']) {
+      expect(ApplicationManifest.parse({ ...validManifest, image }).image, image).toBe(image);
+    }
+  });
+
+  it('rejects image values that are not bare tags', () => {
+    for (const image of [
+      '', // empty
+      'acct.dkr.ecr.us-east-1.amazonaws.com/app:latest', // full URI
+      'repo/tag', // path separator
+      'app:latest', // name:tag
+      '-leading-hyphen', // tag grammar: must start [A-Za-z0-9_]
+      '.leading-dot',
+      'a'.repeat(129), // over the 128-char tag limit
+    ]) {
+      expect(() => ApplicationManifest.parse({ ...validManifest, image }), image).toThrow();
+    }
   });
 
   it('rejects an empty command array and out-of-bounds timeouts', () => {

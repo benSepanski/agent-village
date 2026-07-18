@@ -2,12 +2,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { setApiClient, type ApiClient } from '../client.js';
 import { agentsList } from './agents-list.js';
 import { agentsManifest } from './agents-manifest.js';
 import { agentsShow } from './agents-show.js';
 import { logs } from './logs.js';
 import { run } from './run.js';
+import { secretsList } from './secrets-list.js';
+import { secretsRm } from './secrets-rm.js';
+import { secretsSet } from './secrets-set.js';
 
 const AGENT_ID = '01HZ1234567890ABCDEFGHJKMN';
 const RUN_ID = '01HZN0PQRSTVWXYZ0123456789';
@@ -105,7 +109,7 @@ describe('agents show', () => {
           status: 'active',
           manifest: {
             name: 'gmail-agent',
-            image: 'acct.dkr.ecr.us-east-1.amazonaws.com/app:latest',
+            image: 'sandbox-base',
             schedule: null,
             timeoutMinutes: 30,
             egressAllow: [],
@@ -261,7 +265,7 @@ describe('logs', () => {
 describe('agents manifest', () => {
   const manifest = {
     name: 'summarizer',
-    image: '123.dkr.ecr.us-east-1.amazonaws.com/summarizer:latest',
+    image: 'summarizer',
     schedule: null,
     egressAllow: ['api.notion.com'],
     grants: [],
@@ -298,6 +302,92 @@ describe('agents manifest', () => {
     await expect(
       agentsManifest(AGENT_ID, { manifestPath: '/tmp/manifest.json', detach: true }),
     ).rejects.toThrow(/not both/);
+  });
+});
+
+describe('secrets set', () => {
+  const ARN = `arn:aws:secretsmanager:us-east-1:0:secret:agent-village/dev/agents/${AGENT_ID}/gmail-app-password-AbCdEf`;
+  const stored = { name: 'gmail-app-password', arn: ARN };
+
+  it('POSTs the --value and prints the name but never the value', async () => {
+    const post = vi.fn().mockResolvedValue(stored);
+    setApiClient(fakeClient({ post }));
+    const out = await secretsSet(AGENT_ID, 'gmail-app-password', { value: 's3cret-value' });
+    expect(post).toHaveBeenCalledWith(`/agents/${AGENT_ID}/secrets`, {
+      name: 'gmail-app-password',
+      value: 's3cret-value',
+    });
+    expect(out).toContain('gmail-app-password');
+    expect(out).toContain(ARN);
+    expect(out).not.toContain('s3cret-value');
+  });
+
+  it('reads the value from --from-file, stripping one trailing newline', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'av-cli-'));
+    const secretPath = join(dir, 'secret.txt');
+    await writeFile(secretPath, 'file-s3cret\n');
+    const post = vi.fn().mockResolvedValue(stored);
+    setApiClient(fakeClient({ post }));
+    await secretsSet(AGENT_ID, 'gmail-app-password', { fromFile: secretPath });
+    expect(post).toHaveBeenCalledWith(`/agents/${AGENT_ID}/secrets`, {
+      name: 'gmail-app-password',
+      value: 'file-s3cret',
+    });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('falls back to stdin when neither flag is given', async () => {
+    const post = vi.fn().mockResolvedValue(stored);
+    setApiClient(fakeClient({ post }));
+    await secretsSet(AGENT_ID, 'gmail-app-password', {
+      stdin: Readable.from([Buffer.from('stdin-s3cret\n')]),
+    });
+    expect(post).toHaveBeenCalledWith(`/agents/${AGENT_ID}/secrets`, {
+      name: 'gmail-app-password',
+      value: 'stdin-s3cret',
+    });
+  });
+
+  it('rejects passing both --value and --from-file', async () => {
+    setApiClient(fakeClient());
+    await expect(
+      secretsSet(AGENT_ID, 'gmail-app-password', { value: 'x', fromFile: '/tmp/secret' }),
+    ).rejects.toThrow(/not both/);
+  });
+
+  it('rejects an empty value', async () => {
+    setApiClient(fakeClient());
+    await expect(
+      secretsSet(AGENT_ID, 'gmail-app-password', { stdin: Readable.from([]) }),
+    ).rejects.toThrow(/empty/);
+  });
+});
+
+describe('secrets list', () => {
+  it('renders the secret names from GET /agents/{id}/secrets', async () => {
+    const get = vi.fn().mockResolvedValue({ secrets: ['gmail-app-password', 'other-key'] });
+    setApiClient(fakeClient({ get }));
+    const out = await secretsList(AGENT_ID);
+    expect(get).toHaveBeenCalledWith(`/agents/${AGENT_ID}/secrets`);
+    expect(out).toContain('gmail-app-password');
+    expect(out).toContain('other-key');
+  });
+
+  it('reports when the agent has no secrets', async () => {
+    const get = vi.fn().mockResolvedValue({ secrets: [] });
+    setApiClient(fakeClient({ get }));
+    expect(await secretsList(AGENT_ID)).toContain('no secrets');
+  });
+});
+
+describe('secrets rm', () => {
+  it('DELETEs the named secret', async () => {
+    const del = vi.fn().mockResolvedValue(undefined);
+    setApiClient(fakeClient({ del }));
+    const out = await secretsRm(AGENT_ID, 'gmail-app-password');
+    expect(del).toHaveBeenCalledWith(`/agents/${AGENT_ID}/secrets/gmail-app-password`);
+    expect(out).toContain('deleted');
+    expect(out).toContain('gmail-app-password');
   });
 });
 

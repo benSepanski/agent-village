@@ -16,9 +16,9 @@ step) that runs on the static sandbox base image:
    exits. The workspace (including the state file) syncs back to S3.
 
 Everything the platform ships is exercised: workspace persistence, the
-generic `secret` grant, host-based egress allow-listing on real ports
-(993/465/443), metered LLM spend, the run-duration kill switch, and log
-tailing.
+generic `secret` grant, the plain `manifest.env` config map, host-based
+egress allow-listing on real ports (993/465/443), metered LLM spend, the
+run-duration kill switch, and log tailing.
 
 ## Application-level guards (in the script, not the platform)
 
@@ -56,10 +56,11 @@ bash -c "cp -R /workspace/gmail-agent /tmp/app && cd /tmp/app \
   && npm ci --omit=dev --no-audit --no-fund && node gmail-agent.mjs"
 ```
 
-`manifest.image` is currently informational — `RunTask` cannot override the
-container image, so the static base image (Node 22 + AWS CLI) runs the
-command against the synced workspace. That is exactly what this app relies
-on. `registry.npmjs.org` is in `egressAllow` only for the `npm ci`; vendor
+`manifest.image` is the `sandbox-base` sentinel, so the static base image
+(Node 22 + AWS CLI) runs the command against the synced workspace — exactly
+what this app relies on. Apps needing extra runtimes set a custom tag instead;
+see [`examples/python-sandbox-image`](../python-sandbox-image/).
+`registry.npmjs.org` is in `egressAllow` only for the `npm ci`; vendor
 `node_modules` into the workspace and drop both the `npm ci` and the registry
 domain if you prefer a tighter allowlist.
 
@@ -89,23 +90,30 @@ Create an agent as usual (web UI or `POST /agents`). Relevant fields:
 - `schedule` — e.g. `rate(15 minutes)` or `cron(0/15 * * * ? *)`. The
   **agent-level** schedule drives runs; `manifest.schedule` is informational.
 
-### 3. Store the secrets
+### 3. Store the secret and set the plain config
 
-Secret grants resolve `agent-village/<env>/agents/<agentId>/<name>`. Store
-three secrets (the app's config rides the same mechanism — the manifest has
-no plain-env field):
+Secret grants resolve `agent-village/<env>/agents/<agentId>/<name>`. Only the
+app password is sensitive, so it is the only secret to provision:
 
 ```sh
-ENV=dev            # your deployment env
 AGENT_ID=agt_...   # from step 2
-PREFIX="agent-village/$ENV/agents/$AGENT_ID"
 
-aws secretsmanager create-secret --name "$PREFIX/gmail-app-password" \
-  --secret-string 'abcdabcdabcdabcd'
-aws secretsmanager create-secret --name "$PREFIX/gmail-address" \
-  --secret-string 'my-agent@gmail.com'
-aws secretsmanager create-secret --name "$PREFIX/gmail-allowed-senders" \
-  --secret-string 'me@example.com,teammate@example.com'
+village secrets set "$AGENT_ID" gmail-app-password   # value read from stdin
+```
+
+(`--from-file <path>` and `--value` work too; `village secrets list`/`rm`
+manage what's stored. Without the CLI, the equivalent aws call is
+`aws secretsmanager create-secret --name "agent-village/<env>/agents/$AGENT_ID/gmail-app-password" --secret-string '...'`.)
+
+The non-secret config (`GMAIL_ADDRESS`, `GMAIL_ALLOWED_SENDERS`) rides
+`manifest.env` — a plain env map the platform injects into the app container.
+Edit the values in `manifest.json` before attaching it:
+
+```json
+"env": {
+  "GMAIL_ADDRESS": "my-agent@gmail.com",
+  "GMAIL_ALLOWED_SENDERS": "me@example.com,teammate@example.com"
+}
 ```
 
 ### 4. Seed the workspace
@@ -141,9 +149,9 @@ through the metered gateway, and sends it.
 
 | Env var                 | Source              | Meaning                                                                           |
 | ----------------------- | ------------------- | --------------------------------------------------------------------------------- |
-| `GMAIL_ADDRESS`         | secret grant        | The agent's Gmail address (IMAP/SMTP login).                                      |
+| `GMAIL_ADDRESS`         | `manifest.env`      | The agent's Gmail address (IMAP/SMTP login).                                      |
 | `GMAIL_APP_PASSWORD`    | secret grant        | The 16-char app password.                                                         |
-| `GMAIL_ALLOWED_SENDERS` | secret grant        | Comma-separated addresses that may get replies.                                   |
+| `GMAIL_ALLOWED_SENDERS` | `manifest.env`      | Comma-separated addresses that may get replies.                                   |
 | `GMAIL_AGENT_MODEL`     | optional            | Model id; default `claude-opus-4-8`. Must be a model the metering gateway prices. |
 | `GMAIL_MAX_REPLIES`     | optional            | Reply cap per run; default 5.                                                     |
 | `AV_WORKSPACE_DIR`      | platform / optional | Workspace dir; defaults to `/workspace`.                                          |
@@ -159,9 +167,6 @@ State lives at `<workspace>/gmail-agent/state.json`
   model ids (`claude-fable-5`, `claude-opus-4-8`, `claude-opus-4-7`,
   `claude-sonnet-5`, `claude-sonnet-4-6`, `claude-haiku-4-5`,
   `claude-haiku-4-5-20251001`); other ids are rejected with a 400.
-- **Non-secret config rides secret grants** — the manifest has no plain env
-  mechanism, so `gmail-address` / `gmail-allowed-senders` are stored as
-  (non-sensitive) secrets.
 - **Per-run `npm ci`** — deps are re-downloaded each run (~a few seconds,
   lockfile-pinned). Vendoring `node_modules` into the workspace avoids the
   download at the cost of syncing thousands of files.

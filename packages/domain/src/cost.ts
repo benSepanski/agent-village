@@ -24,36 +24,55 @@ const PRICING: Record<AnthropicModel, ModelPricing> = {
 const ONE_MILLION = 1_000_000;
 
 /**
- * Worst-case cost for a single call. Used to reserve spend before the call.
- * Assumes the model emits exactly `maxOutputTokens` and uses negligible input
- * (the system prompt is small relative to output for our MVP agents).
+ * Worst-case cost for a single call. Used to reserve spend before the call, so
+ * it must UPPER-BOUND the actual cost or the hard spend cap can be breached:
+ * the model emits at most `maxOutputTokens`, and input is priced from
+ * `inputChars` (system prompt + user message). Omitting the input term let a
+ * large system prompt — allowed up to 20k chars (~5k tokens) — settle above the
+ * cap, since finalizeSpend applies the estimate→actual delta unconditionally.
  */
-export function estimateCost(model: AnthropicModel, maxOutputTokens: number): number {
+export function estimateCost(
+  model: AnthropicModel,
+  maxOutputTokens: number,
+  inputChars = 0,
+): number {
   const price = PRICING[model];
-  return (maxOutputTokens * price.outputPerMtok) / ONE_MILLION;
+  const inputTokens = Math.ceil(inputChars / APPROX_CHARS_PER_TOKEN);
+  return (inputTokens * price.inputPerMtok + maxOutputTokens * price.outputPerMtok) / ONE_MILLION;
 }
 
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
-  /** `cache_creation_input_tokens` — billed at 1.25x the input rate. */
+  /** `cache_creation_input_tokens` (aggregate) — 5-minute writes billed 1.25x. */
   cacheCreationInputTokens?: number;
+  /**
+   * `cache_creation.ephemeral_1h_input_tokens` — the 1-hour-TTL portion of the
+   * aggregate above, billed at 2x (not 1.25x). Anthropic returns the breakdown
+   * only when 1h caching is used, so absent ⇒ all writes are 5-minute.
+   */
+  cacheCreation1hInputTokens?: number;
   /** `cache_read_input_tokens` — billed at 0.1x the input rate. */
   cacheReadInputTokens?: number;
 }
 
-// Anthropic prompt-caching multipliers on the input rate.
-const CACHE_WRITE_INPUT_MULTIPLIER = 1.25;
+// Anthropic prompt-caching multipliers on the input rate. Cache writes bill at
+// 1.25x for the default 5-minute TTL and 2x for the 1-hour TTL.
+const CACHE_WRITE_5M_MULTIPLIER = 1.25;
+const CACHE_WRITE_1H_MULTIPLIER = 2;
 const CACHE_READ_INPUT_MULTIPLIER = 0.1;
 
 /** Actual cost of a completed call given usage from the Anthropic response. */
 export function actualCost(model: AnthropicModel, usage: TokenUsage): number {
   const price = PRICING[model];
-  const cacheWrite = usage.cacheCreationInputTokens ?? 0;
+  const cacheWriteTotal = usage.cacheCreationInputTokens ?? 0;
+  const cacheWrite1h = Math.min(usage.cacheCreation1hInputTokens ?? 0, cacheWriteTotal);
+  const cacheWrite5m = cacheWriteTotal - cacheWrite1h;
   const cacheRead = usage.cacheReadInputTokens ?? 0;
   return (
     (usage.inputTokens * price.inputPerMtok +
-      cacheWrite * price.inputPerMtok * CACHE_WRITE_INPUT_MULTIPLIER +
+      cacheWrite5m * price.inputPerMtok * CACHE_WRITE_5M_MULTIPLIER +
+      cacheWrite1h * price.inputPerMtok * CACHE_WRITE_1H_MULTIPLIER +
       cacheRead * price.inputPerMtok * CACHE_READ_INPUT_MULTIPLIER +
       usage.outputTokens * price.outputPerMtok) /
     ONE_MILLION
@@ -81,12 +100,24 @@ export function estimateGatewayCall(
 ): number {
   const price = PRICING[model];
   const inputTokens = Math.ceil(requestChars / APPROX_CHARS_PER_TOKEN);
-  return (inputTokens * price.inputPerMtok + maxOutputTokens * price.outputPerMtok) / ONE_MILLION;
+  // Reserve input at the 1h cache-WRITE ceiling (2x the input rate): any prompt
+  // token may be billed as a cache-creation write, which actualCost prices at
+  // up to 2x. Pricing the reservation's input at 1x under-reserved cache-heavy
+  // calls (exactly the apply-bot pattern: large 1h-TTL cached prompts), letting
+  // reconcile's positive delta settle above the hard cap. The gateway reconciles
+  // to real usage right after the call, so the headroom holds for one call only.
+  return (
+    (inputTokens * price.inputPerMtok * CACHE_WRITE_1H_MULTIPLIER +
+      maxOutputTokens * price.outputPerMtok) /
+    ONE_MILLION
+  );
 }
 
-// Fargate ARM64 (us-east-1) public-list pricing. Update if AWS adjusts prices.
-const FARGATE_VCPU_PER_HOUR = 0.04048;
-const FARGATE_GB_PER_HOUR = 0.004445;
+// Fargate ARM64 / Graviton (us-east-1) public-list pricing — the task
+// definition is CpuArchitecture.ARM64, which lists ~20% below x86
+// ($0.04048 / $0.004445). Update if AWS adjusts prices.
+const FARGATE_VCPU_PER_HOUR = 0.03238;
+const FARGATE_GB_PER_HOUR = 0.003556;
 const CPU_UNITS_PER_VCPU = 1024;
 const MIB_PER_GB = 1024;
 const MINUTES_PER_HOUR = 60;

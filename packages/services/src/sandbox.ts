@@ -13,6 +13,7 @@ import {
 } from '@agent-village/shared';
 import { logger } from './logger.js';
 import { buildProxyOverride } from './sandbox-egress.js';
+import { resolveTaskDefinition } from './sandbox-taskdef.js';
 import { armRunWatchdog } from './sandbox-watchdog.js';
 import {
   buildSesSessionStatements,
@@ -213,6 +214,11 @@ function buildEnvironment(args: AppOverrideInput): KeyValuePair[] {
     // CONNECT support; pointing cooperating SDKs (incl. the AWS CLI, which
     // honours HTTPS_PROXY) at it would break `aws s3 sync`. iptables is the sole,
     // sufficient enforcement — see ADR 0003.
+    // Plain manifest config after the platform block, before the grant env.
+    // Schema validation makes collisions with either unrepresentable (reserved
+    // names cover the platform block; a superRefine covers the grants), but
+    // ECS applies the last duplicate name, so keep the safe order anyway.
+    ...Object.entries(input.manifest.env).map(([name, value]) => ({ name, value })),
     // Per-run tool-grant env appended last (does not disturb the STS creds).
     ...grantEnv,
   ];
@@ -249,7 +255,9 @@ async function runTask(args: AppOverrideInput): Promise<string> {
       overrides: {
         containerOverrides: [
           buildContainerOverride(args),
-          buildProxyOverride(input.manifest, config.region, [gatewayHost(config.gatewayUrl)]),
+          buildProxyOverride(input.manifest, config.region, config.workspaceBucket, [
+            gatewayHost(config.gatewayUrl),
+          ]),
         ],
       },
     }),
@@ -260,14 +268,23 @@ async function runTask(args: AppOverrideInput): Promise<string> {
 }
 
 /**
- * Launch a sandboxed application run on Fargate and return the task ARN. NOTE:
- * `manifest.image` is not yet honored — RunTask cannot override the container
- * image, so the static SandboxStack task definition (base image) runs the
- * manifest's command against the synced workspace. Registering a per-manifest
- * task definition is a documented follow-up.
+ * Launch a sandboxed application run on Fargate and return the task ARN.
+ * `manifest.image` picks the task definition: the 'sandbox-base' sentinel runs
+ * the static SandboxStack definition; any other tag runs a per-image clone of
+ * it (same family, roles, and proxy sidecar) registered on demand and cached
+ * on the agent record — see sandbox-taskdef.ts.
  */
 export async function launchSandboxRun(input: LaunchInput): Promise<string> {
-  const config = getSandboxConfig();
+  const base = getSandboxConfig();
+  const config = {
+    ...base,
+    taskDefinitionArn: await resolveTaskDefinition(
+      getEcsClient(),
+      input.agent,
+      input.manifest.image,
+      base.taskDefinitionArn,
+    ),
+  };
   const creds = await assumeScopedCreds(input, config);
   const grantEnv = await resolveGrantEnv(input.manifest, {
     agentId: input.agent.id,

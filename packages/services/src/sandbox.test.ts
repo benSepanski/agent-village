@@ -1,14 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RunTaskCommand, StopTaskCommand } from '@aws-sdk/client-ecs';
+import {
+  DescribeTaskDefinitionCommand,
+  RegisterTaskDefinitionCommand,
+  RunTaskCommand,
+  StopTaskCommand,
+} from '@aws-sdk/client-ecs';
 import { CreateScheduleCommand } from '@aws-sdk/client-scheduler';
 import { AssumeRoleCommand } from '@aws-sdk/client-sts';
 import type { Agent, ApplicationManifest } from '@agent-village/shared';
 
-const { grantSecretsMock } = vi.hoisted(() => ({
+const { agentRepoMock, grantSecretsMock } = vi.hoisted(() => ({
+  agentRepoMock: { updateAgent: vi.fn() },
   grantSecretsMock: { getNotionToken: vi.fn(), getGithubPat: vi.fn(), getAgentSecret: vi.fn() },
 }));
 
-vi.mock('@agent-village/data', () => ({ grantSecrets: grantSecretsMock }));
+vi.mock('@agent-village/data', () => ({
+  agentRepo: agentRepoMock,
+  grantSecrets: grantSecretsMock,
+}));
 
 import { launchSandboxRun, setEcsClient, setStsClient } from './sandbox.js';
 import { resetSchedulerClient, setSchedulerClient } from './scheduling.js';
@@ -23,12 +32,13 @@ const agent = { id: AGENT_ID, ownerSub: SUB } as unknown as Agent;
 
 const manifest: ApplicationManifest = {
   name: 'reporter',
-  image: 'acct.dkr.ecr.us-east-1.amazonaws.com/app:latest',
+  image: 'sandbox-base',
   command: ['python', '/workspace/app.py'],
   schedule: null,
   timeoutMinutes: 30,
   egressAllow: [],
   grants: [],
+  env: {},
   flushIntervalSeconds: 120,
 };
 
@@ -60,6 +70,7 @@ beforeEach(() => {
   ecsSend.mockReset();
   stsSend.mockReset();
   schedulerSend.mockReset().mockResolvedValue({});
+  agentRepoMock.updateAgent.mockReset().mockResolvedValue(undefined);
   grantSecretsMock.getNotionToken.mockReset();
   grantSecretsMock.getGithubPat.mockReset();
   grantSecretsMock.getAgentSecret.mockReset();
@@ -155,8 +166,13 @@ describe('launchSandboxRun', () => {
     expect(proxy).toBeDefined();
     const allow = proxy?.environment?.find((e) => e.name === 'AV_EGRESS_ALLOW')?.value ?? '';
     const domains = allow.split(',');
-    // Base AWS domains keep `aws s3 sync` working.
-    expect(domains).toContain('s3.us-east-1.amazonaws.com');
+    // S3 is scoped to the workspace bucket's virtual-hosted hostnames only —
+    // NOT a `*.s3` / bare-`s3` wildcard that would reach any bucket.
+    expect(domains).toContain('workspace-bucket.s3.us-east-1.amazonaws.com');
+    expect(domains).not.toContain('s3.us-east-1.amazonaws.com');
+    expect(domains).not.toContain('*.s3.us-east-1.amazonaws.com');
+    expect(domains).not.toContain('s3.amazonaws.com');
+    // STS/logs base domains keep the entrypoint's `aws s3 sync` working.
     expect(domains).toContain('sts.us-east-1.amazonaws.com');
     // Union with the manifest's own allowlist.
     expect(domains).toContain('api.notion.com');
@@ -257,6 +273,30 @@ describe('launchSandboxRun', () => {
     expect(env['AWS_SESSION_TOKEN']).toBe('ST');
   });
 
+  it('injects manifest.env into the app container after the platform block, before grant env', async () => {
+    await launchSandboxRun({
+      agent,
+      manifest: {
+        ...manifest,
+        env: { GMAIL_ADDRESS: 'agent@example.com', GMAIL_MAX_REPLIES: '3' },
+        grants: [{ kind: 'secret', name: 'gmail-app-password', env: 'GMAIL_APP_PASSWORD' }],
+      },
+      runId: RUN_ID,
+      gatewayToken: GATEWAY_TOKEN,
+    });
+    const cmd = ecsSend.mock.calls[0]![0] as RunTaskCommand;
+    const app = cmd.input.overrides?.containerOverrides?.find((o) => o.name === 'app');
+    const names = (app?.environment ?? []).map((e) => e.name);
+    const env = Object.fromEntries((app?.environment ?? []).map((e) => [e.name, e.value]));
+    expect(env['GMAIL_ADDRESS']).toBe('agent@example.com');
+    expect(env['GMAIL_MAX_REPLIES']).toBe('3');
+    // Platform block untouched and first; grant env stays last (ECS applies
+    // the last duplicate name, so the safe order is platform → env → grants).
+    expect(env['ANTHROPIC_API_KEY']).toBe(GATEWAY_TOKEN);
+    expect(names.indexOf('AWS_SESSION_TOKEN')).toBeLessThan(names.indexOf('GMAIL_ADDRESS'));
+    expect(names.indexOf('GMAIL_ADDRESS')).toBeLessThan(names.indexOf('GMAIL_APP_PASSWORD'));
+  });
+
   it('refuses a secret grant naming a platform-managed leaf, even if one slipped past the schema', async () => {
     // Defense in depth for ADR 0004: 'anthropic-key' lives under the agent's
     // own prefix, so without this launch-time check a stored manifest could
@@ -327,5 +367,119 @@ describe('launchSandboxRun', () => {
       }),
     ).rejects.toThrow(/not under agent/);
     expect(ecsSend).not.toHaveBeenCalled();
+  });
+});
+
+describe('launchSandboxRun (manifest.image task definitions)', () => {
+  const BASE_ARN = SANDBOX_ENV.AV_SANDBOX_TASKDEF_ARN;
+  const CLONE_ARN = 'arn:aws:ecs:us-east-1:0:task-definition/agent-village-dev-sandbox:2';
+  const APP_IMAGE = '0.dkr.ecr.us-east-1.amazonaws.com/agent-village-dev-sandbox-base:latest';
+  const describedTaskDef = {
+    taskDefinitionArn: BASE_ARN,
+    family: 'agent-village-dev-sandbox',
+    containerDefinitions: [
+      { name: 'app', image: APP_IMAGE, user: '10001' },
+      { name: 'egress-proxy', image: APP_IMAGE.replace('sandbox-base', 'egress-proxy') },
+    ],
+  };
+
+  const commandsSent = (): unknown[] => ecsSend.mock.calls.map((call) => call[0] as unknown);
+  const sentRunTask = (): RunTaskCommand =>
+    commandsSent().find((c): c is RunTaskCommand => c instanceof RunTaskCommand)!;
+
+  beforeEach(() => {
+    ecsSend.mockImplementation((cmd: unknown) => {
+      if (cmd instanceof DescribeTaskDefinitionCommand) {
+        return Promise.resolve({ taskDefinition: describedTaskDef });
+      }
+      if (cmd instanceof RegisterTaskDefinitionCommand) {
+        return Promise.resolve({ taskDefinition: { taskDefinitionArn: CLONE_ARN } });
+      }
+      return Promise.resolve({ tasks: [{ taskArn: 'arn:aws:ecs:us-east-1:0:task/abc' }] });
+    });
+  });
+
+  it('runs the sentinel image on the static task definition with zero extra ECS calls', async () => {
+    await launchSandboxRun({ agent, manifest, runId: RUN_ID, gatewayToken: GATEWAY_TOKEN });
+    expect(sentRunTask().input.taskDefinition).toBe(BASE_ARN);
+    expect(commandsSent().some((c) => c instanceof DescribeTaskDefinitionCommand)).toBe(false);
+    expect(commandsSent().some((c) => c instanceof RegisterTaskDefinitionCommand)).toBe(false);
+    expect(agentRepoMock.updateAgent).not.toHaveBeenCalled();
+  });
+
+  it('clones, registers, and caches a per-image definition on cache miss', async () => {
+    await launchSandboxRun({
+      agent,
+      manifest: { ...manifest, image: 'apply-bot' },
+      runId: RUN_ID,
+      gatewayToken: GATEWAY_TOKEN,
+    });
+    const describe = commandsSent().find(
+      (c): c is DescribeTaskDefinitionCommand => c instanceof DescribeTaskDefinitionCommand,
+    );
+    expect(describe?.input.taskDefinition).toBe(BASE_ARN);
+    const register = commandsSent().find(
+      (c): c is RegisterTaskDefinitionCommand => c instanceof RegisterTaskDefinitionCommand,
+    );
+    // Same family (the family-scoped RunTask/PassRole grants must keep
+    // matching); only the app container's tag changes, on the same repo URI.
+    expect(register?.input.family).toBe('agent-village-dev-sandbox');
+    const appDef = register?.input.containerDefinitions?.find((c) => c.name === 'app');
+    expect(appDef?.image).toBe(APP_IMAGE.replace(':latest', ':apply-bot'));
+    expect(sentRunTask().input.taskDefinition).toBe(CLONE_ARN);
+    // Best-effort cache persist, keyed on the tag AND the static revision ARN.
+    expect(agentRepoMock.updateAgent).toHaveBeenCalledWith({
+      agentId: AGENT_ID,
+      ownerSub: SUB,
+      patch: { sandboxTaskDef: { image: 'apply-bot', baseArn: BASE_ARN, arn: CLONE_ARN } },
+    });
+  });
+
+  it('reuses a valid cached definition without any Describe/Register calls', async () => {
+    const cached = {
+      ...agent,
+      sandboxTaskDef: { image: 'apply-bot', baseArn: BASE_ARN, arn: CLONE_ARN },
+    } as Agent;
+    await launchSandboxRun({
+      agent: cached,
+      manifest: { ...manifest, image: 'apply-bot' },
+      runId: RUN_ID,
+      gatewayToken: GATEWAY_TOKEN,
+    });
+    expect(sentRunTask().input.taskDefinition).toBe(CLONE_ARN);
+    expect(commandsSent().some((c) => c instanceof DescribeTaskDefinitionCommand)).toBe(false);
+    expect(commandsSent().some((c) => c instanceof RegisterTaskDefinitionCommand)).toBe(false);
+    expect(agentRepoMock.updateAgent).not.toHaveBeenCalled();
+  });
+
+  it('re-registers when the cached baseArn is stale (platform redeploy)', async () => {
+    const stale = {
+      ...agent,
+      sandboxTaskDef: {
+        image: 'apply-bot',
+        baseArn: 'arn:aws:ecs:us-east-1:0:task-definition/agent-village-dev-sandbox:0',
+        arn: 'arn:aws:ecs:us-east-1:0:task-definition/agent-village-dev-sandbox:1',
+      },
+    } as Agent;
+    await launchSandboxRun({
+      agent: stale,
+      manifest: { ...manifest, image: 'apply-bot' },
+      runId: RUN_ID,
+      gatewayToken: GATEWAY_TOKEN,
+    });
+    expect(commandsSent().some((c) => c instanceof RegisterTaskDefinitionCommand)).toBe(true);
+    expect(sentRunTask().input.taskDefinition).toBe(CLONE_ARN);
+  });
+
+  it('still launches when the cache persist fails (one extra register next run)', async () => {
+    agentRepoMock.updateAgent.mockRejectedValue(new Error('dynamo down'));
+    const taskArn = await launchSandboxRun({
+      agent,
+      manifest: { ...manifest, image: 'apply-bot' },
+      runId: RUN_ID,
+      gatewayToken: GATEWAY_TOKEN,
+    });
+    expect(taskArn).toBe('arn:aws:ecs:us-east-1:0:task/abc');
+    expect(sentRunTask().input.taskDefinition).toBe(CLONE_ARN);
   });
 });

@@ -19,6 +19,17 @@ describe('estimateCost', () => {
       estimateCost('claude-opus-4-7', 1000),
     );
   });
+
+  it('adds a worst-case input term so the reservation upper-bounds actual cost', () => {
+    // fable-5 input is $10/Mtok: 20000 chars -> 5000 tokens -> $0.05 of input,
+    // on top of the output cap. Omitting this let a big prompt breach the cap.
+    const withPrompt = estimateCost('claude-fable-5', 1024, 20000);
+    const outputOnly = estimateCost('claude-fable-5', 1024);
+    expect(withPrompt - outputOnly).toBeCloseTo(0.05, 6);
+    // Must cover the finalized input cost the same prompt actually incurs.
+    const actual = actualCost('claude-fable-5', { inputTokens: 5000, outputTokens: 1024 });
+    expect(withPrompt).toBeGreaterThanOrEqual(actual);
+  });
 });
 
 describe('actualCost', () => {
@@ -43,13 +54,34 @@ describe('actualCost', () => {
     });
     expect(cost).toBeCloseTo(3.75 + 0.3, 6);
   });
+
+  it('bills the 1-hour-TTL portion of cache writes at 2x, not 1.25x', () => {
+    // Sonnet $3/Mtok in. 1M total writes, of which 400k are 1h-TTL:
+    // 600k @ 1.25x = $2.25; 400k @ 2.0x = $2.40; total $4.65.
+    const cost = actualCost('claude-sonnet-4-6', {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 1_000_000,
+      cacheCreation1hInputTokens: 400_000,
+    });
+    expect(cost).toBeCloseTo(2.25 + 2.4, 6);
+  });
+
+  it('treats all cache writes as 5-minute (1.25x) when no 1h breakdown is present', () => {
+    const cost = actualCost('claude-sonnet-4-6', {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 1_000_000,
+    });
+    expect(cost).toBeCloseTo(3.75, 6);
+  });
 });
 
 describe('estimateSandboxCost', () => {
   it('bills cpu + memory for the full timeout window', () => {
-    // 0.25 vCPU + 0.5 GiB for 60 min:
-    // 0.25*0.04048 + 0.5*0.004445 = 0.0123425
-    expect(estimateSandboxCost(60, 256, 512)).toBeCloseTo(0.0123425, 6);
+    // ARM64/Graviton rates: 0.25 vCPU + 0.5 GiB for 60 min:
+    // 0.25*0.03238 + 0.5*0.003556 = 0.009873
+    expect(estimateSandboxCost(60, 256, 512)).toBeCloseTo(0.009873, 6);
   });
 
   it('scales linearly with the timeout', () => {
@@ -95,16 +127,28 @@ describe('actualSandboxCost', () => {
 });
 
 describe('estimateGatewayCall', () => {
-  it('prices max output tokens plus chars/4 approximated input tokens', () => {
-    // Sonnet: 4000 chars -> 1000 input tokens @ $3/Mtok = 0.003;
-    // 500 max output tokens @ $15/Mtok = 0.0075.
-    expect(estimateGatewayCall('claude-sonnet-4-6', 500, 4000)).toBeCloseTo(0.0105, 6);
+  it('prices output plus input at the 2x cache-write ceiling', () => {
+    // Sonnet: 4000 chars -> 1000 input tokens @ $3/Mtok * 2 (worst-case 1h
+    // cache write) = 0.006; 500 max output tokens @ $15/Mtok = 0.0075.
+    expect(estimateGatewayCall('claude-sonnet-4-6', 500, 4000)).toBeCloseTo(0.0135, 6);
   });
 
   it('rounds partial input tokens up', () => {
-    // 1 char still reserves one input token.
+    // 1 char still reserves one input token, priced at the 2x ceiling.
     const oneChar = estimateGatewayCall('claude-sonnet-4-6', 0, 1);
-    expect(oneChar).toBeCloseTo(3 / 1_000_000, 12);
+    expect(oneChar).toBeCloseTo((3 * 2) / 1_000_000, 12);
+  });
+
+  it('upper-bounds actualCost even when the whole prompt is a 1h cache write', () => {
+    // The reservation must never settle below actual, or the hard cap breaks.
+    const reserved = estimateGatewayCall('claude-opus-4-7', 1000, 4000);
+    const actualAll1hCacheWrite = actualCost('claude-opus-4-7', {
+      inputTokens: 0,
+      outputTokens: 1000,
+      cacheCreationInputTokens: 1000,
+      cacheCreation1hInputTokens: 1000,
+    });
+    expect(reserved).toBeGreaterThanOrEqual(actualAll1hCacheWrite);
   });
 
   it('costs at least the pure-output estimate for the same cap', () => {

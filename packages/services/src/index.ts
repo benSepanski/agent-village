@@ -1,5 +1,6 @@
 export * as user from './user.js';
 export * as agent from './agent.js';
+export * as agentSecrets from './agent-secrets.js';
 export * as scheduling from './scheduling.js';
 export * as runner from './runner.js';
 export * as gateway from './anthropic-gateway.js';

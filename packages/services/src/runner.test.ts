@@ -219,7 +219,7 @@ describe('executeRun (sandbox)', () => {
     ...agentFixture,
     manifest: {
       name: 'reporter',
-      image: 'acct.dkr.ecr.us-east-1.amazonaws.com/app:latest',
+      image: 'sandbox-base',
       schedule: null,
       timeoutMinutes: 30,
       egressAllow: [],
@@ -283,9 +283,15 @@ describe('executeRun (sandbox)', () => {
     await expect(executeRun({ agentId: AGENT_ID })).rejects.toThrow('capacity');
     const failPatch = runRepoMock.patchRun.mock.calls.find((c) => c[3].status === 'launch_failed');
     expect(failPatch).toBeDefined();
-    // The refunded flat estimate must not linger as reported cost (month-to-date
-    // sums costUsd).
-    expect(failPatch![3]).toMatchObject({ costUsd: 0 });
+    // The launch_failed status patch must NOT touch costUsd — zeroing it there
+    // could race a concurrent reconcile's ADD and drive the record negative.
+    expect(failPatch![3]).not.toHaveProperty('costUsd');
+    // Since this path WON the reservation claim, costUsd is zeroed in a separate
+    // patch (the refunded flat estimate must not linger as reported cost).
+    const zeroPatch = runRepoMock.patchRun.mock.calls.find(
+      (c) => c[3].costUsd === 0 && c[3].status === undefined,
+    );
+    expect(zeroPatch).toBeDefined();
     expect(agentRepoMock.releaseActiveRun).toHaveBeenCalled();
     // The refund moves exactly the atomically claimed reservation.
     expect(agentRepoMock.finalizeSpend.mock.calls[0]![0].deltaUsd).toBeCloseTo(-RESERVED, 9);

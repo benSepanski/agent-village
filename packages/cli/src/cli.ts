@@ -5,11 +5,37 @@ import { agentsShow } from './commands/agents-show.js';
 import { doctor } from './commands/doctor.js';
 import { logs } from './commands/logs.js';
 import { run } from './commands/run.js';
+import { secretsList } from './commands/secrets-list.js';
+import { secretsRm } from './commands/secrets-rm.js';
+import { secretsSet } from './commands/secrets-set.js';
 
-export function buildCli(): Command {
-  const program = new Command();
-  program.name('village').description('Agent Village CLI');
+function registerSecrets(program: Command): void {
+  const secrets = program
+    .command('secrets')
+    .description('Per-agent secret values (never echoed back)');
+  secrets
+    .command('set <agentId> <name>')
+    .description('Store a secret value from --value, --from-file, or stdin')
+    .option('--value <value>', 'Inline value (prefer --from-file or stdin: shell history)')
+    .option('--from-file <path>', 'Read the value from a file')
+    .action(async (agentId: string, name: string, opts: { value?: string; fromFile?: string }) => {
+      process.stdout.write(`${await secretsSet(agentId, name, opts)}\n`);
+    });
+  secrets
+    .command('list <agentId>')
+    .description("List an agent's secret names (values are never shown)")
+    .action(async (agentId: string) => {
+      process.stdout.write(`${await secretsList(agentId)}\n`);
+    });
+  secrets
+    .command('rm <agentId> <name>')
+    .description('Delete one secret')
+    .action(async (agentId: string, name: string) => {
+      process.stdout.write(`${await secretsRm(agentId, name)}\n`);
+    });
+}
 
+function registerAgents(program: Command): void {
   const agents = program.command('agents').description('Agent CRUD over HTTP');
   agents
     .command('list')
@@ -34,6 +60,14 @@ export function buildCli(): Command {
         );
       },
     );
+}
+
+export function buildCli(): Command {
+  const program = new Command();
+  program.name('village').description('Agent Village CLI');
+
+  registerAgents(program);
+  registerSecrets(program);
 
   program
     .command('run <agentId>')

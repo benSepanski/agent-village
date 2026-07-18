@@ -9,6 +9,9 @@ export const LOG_EVENTS = [
   'agent.deleted',
   'agent.paused',
   'agent.resumed',
+  // User-managed per-agent secrets (Phase 4 step 02) — names only, never values:
+  'agent.secret.stored',
+  'agent.secret.deleted',
   'agent.run.started',
   'agent.run.config_loaded',
   'agent.run.spend_reserved',
@@ -29,6 +32,9 @@ export const LOG_EVENTS = [
   // Launcher + lifecycle events (emitted by the runner/lifecycle Lambdas):
   'sandbox.run.launched',
   'sandbox.run.launch_failed',
+  // The task launched, but persisting its bookkeeping taskArn failed. Logged
+  // and swallowed — the live task must NOT be treated as a launch failure.
+  'sandbox.run.taskarn_persist_failed',
   'sandbox.run.finalized',
   // Honest-cost reconciliation: the flat launch reservation is replaced by the
   // task's actual-duration Fargate cost when it stops (Phase 3 step 06):
@@ -36,6 +42,9 @@ export const LOG_EVENTS = [
   'sandbox.run.reconcile_failed',
   'sandbox.run.grants_injected',
   'sandbox.run.grant_denied',
+  // Per-image task definitions for custom manifest.image tags (Phase 4 step 03):
+  'sandbox.taskdef.registered',
+  'sandbox.taskdef.cache_persist_failed',
   // Run-duration watchdog (one-shot StopTask schedule armed by the launcher,
   // disarmed by the lifecycle handler when the task stops):
   'sandbox.watchdog.armed',
@@ -51,6 +60,7 @@ export const LOG_EVENTS = [
   'gateway.request.rejected',
   'gateway.call.forwarded',
   'gateway.call.reconciled',
+  'gateway.call.reconcile_failed',
   'gateway.call.usage_unparsed',
   'gateway.call.upstream_failed',
   'gateway.run.marked_exhausted',

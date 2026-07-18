@@ -84,8 +84,23 @@ Each link below answers one question in one screen. Pattern-match against the qu
 
 ## I'm picking up the project mid-flight
 
+- [Roadmap](roadmap.md) — where we're going and the next concrete goal (run
+  **apply-bot** as a manifest app). Start here for direction.
 - [What Phase 0 delivered](phases/phase-0-harness.md) — the harness already in place.
 - [Phase 1 — MVP](phases/phase-1-mvp.md) — delivered; the spec plus known deviations as shipped.
 - [Phase 2 — sandboxed application runs](phases/phase-2-sandbox-runs.md) — done; the step table shows what landed.
-- [Phase 3 — one-off applications, safely](phases/phase-3-application-platform.md) — planned; the next phase.
-- [Phase 4+ roadmap](phases/phase-2-plus.md) — sketched, not detailed.
+- [Phase 3 — one-off applications, safely](phases/phase-3-application-platform.md) — done, including the post-review fixes.
+- [Phase 4 — apply-bot enablement](phases/phase-4-apply-bot-enablement.md) — planned; the current execution plan.
+- [Phase 5+ roadmap](phases/phase-2-plus.md) — sketched, not detailed.
+- [Agent notes](notes/README.md) — informal session handoffs / working notes left for the next run.
+
+## Where do I write forward-looking material?
+
+Three homes, so it never has to be crammed into a commit message or left out:
+
+| You want to record                               | Home                        |
+| ------------------------------------------------ | --------------------------- |
+| Future direction, goals, "what next / why"       | [roadmap.md](roadmap.md)    |
+| An ordered plan of work with acceptance criteria | [phases/](phases/README.md) |
+| Informal session handoff / investigation notes   | [notes/](notes/README.md)   |
+| A cross-cutting decision and its reasoning       | [adr/](adr/README.md)       |

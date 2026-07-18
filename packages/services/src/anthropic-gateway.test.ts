@@ -272,6 +272,18 @@ describe('handleGatewayRequest — reserve → forward → reconcile', () => {
       deltaUsd: costUsd - expectedEstimate,
     });
   });
+
+  it('still returns the billed 200 response when reconcile bookkeeping throws', async () => {
+    // Regression (F6): the upstream call already billed Anthropic. A DynamoDB
+    // failure while reconciling must NOT surface as a 500 — that makes the
+    // sandbox SDK retry a successful generation and double real spend. The
+    // worst-case reservation stays applied (safe direction for the cap).
+    agentRepoMock.finalizeSpend.mockRejectedValue(new Error('DynamoDB throttled'));
+    const res = await handleGatewayRequest(request());
+    expect(res.status).toBe(200);
+    expect(res.body).toBe(okUpstreamBody);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('handleGatewayRequest — exhaustion', () => {

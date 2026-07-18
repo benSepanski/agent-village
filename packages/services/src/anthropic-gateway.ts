@@ -319,7 +319,21 @@ async function forwardAndReconcile(
     runId: ctx.run.id,
     upstreamStatus: upstream.status,
   });
-  await reconcile(ctx, upstream);
+  // Reconciliation is ledger bookkeeping AFTER a call Anthropic already billed.
+  // If it throws (e.g. a DynamoDB throttle on finalizeSpend), the buffered
+  // upstream response must still be returned: surfacing a 500 here makes the
+  // sandbox SDK retry a successful, billed generation, multiplying real spend.
+  // The worst-case reservation stays applied — the safe direction for the cap.
+  try {
+    await reconcile(ctx, upstream);
+  } catch (err) {
+    logger.error({
+      event: 'gateway.call.reconcile_failed',
+      agentId: ctx.agent.id,
+      runId: ctx.run.id,
+      err,
+    });
+  }
   return upstream;
 }
 

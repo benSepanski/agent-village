@@ -12,6 +12,7 @@ describe('extractUsage (JSON body)', () => {
       inputTokens: 120,
       outputTokens: 45,
       cacheCreationInputTokens: 0,
+      cacheCreation1hInputTokens: 0,
       cacheReadInputTokens: 0,
     });
   });
@@ -30,7 +31,24 @@ describe('extractUsage (JSON body)', () => {
       inputTokens: 10,
       outputTokens: 5,
       cacheCreationInputTokens: 2048,
+      cacheCreation1hInputTokens: 0,
       cacheReadInputTokens: 4096,
+    });
+  });
+
+  it('separates the 1-hour-TTL cache-write bucket (priced at 2x) from the aggregate', () => {
+    const body = JSON.stringify({
+      id: 'msg_x',
+      usage: {
+        input_tokens: 10,
+        output_tokens: 5,
+        cache_creation_input_tokens: 1000,
+        cache_creation: { ephemeral_5m_input_tokens: 600, ephemeral_1h_input_tokens: 400 },
+      },
+    });
+    expect(extractUsage('application/json', body)).toMatchObject({
+      cacheCreationInputTokens: 1000,
+      cacheCreation1hInputTokens: 400,
     });
   });
 
@@ -67,6 +85,7 @@ describe('extractUsage (buffered SSE stream)', () => {
       inputTokens: 33,
       outputTokens: 57,
       cacheCreationInputTokens: 7,
+      cacheCreation1hInputTokens: 0,
       cacheReadInputTokens: 11,
     });
   });
@@ -82,6 +101,7 @@ describe('extractUsage (buffered SSE stream)', () => {
       inputTokens: 33,
       outputTokens: 57,
       cacheCreationInputTokens: 7,
+      cacheCreation1hInputTokens: 0,
       cacheReadInputTokens: 11,
     });
   });

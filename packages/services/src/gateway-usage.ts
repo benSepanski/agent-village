@@ -9,12 +9,17 @@ import type { TokenUsage } from '@agent-village/domain';
  * cumulative `output_tokens`.
  */
 
-// Cache tokens are billed too (write 1.25x, read 0.1x input rate) — ignoring
-// them would under-count real Anthropic billing, the unsafe direction for a
-// spend cap.
+// Cache tokens are billed too (5-min write 1.25x, 1-hour write 2x, read 0.1x
+// input rate) — ignoring them would under-count real Anthropic billing, the
+// unsafe direction for a spend cap. `cache_creation` breaks the aggregate
+// `cache_creation_input_tokens` into per-TTL buckets; it is present only when
+// caching is used, and the 1h bucket is what actualCost prices at 2x.
 const CacheTokensSchema = z.object({
   cache_creation_input_tokens: z.number().int().nonnegative().optional(),
   cache_read_input_tokens: z.number().int().nonnegative().optional(),
+  cache_creation: z
+    .object({ ephemeral_1h_input_tokens: z.number().int().nonnegative().optional() })
+    .optional(),
 });
 
 const JsonUsageSchema = z.object({
@@ -51,6 +56,7 @@ function extractJsonUsage(body: string): TokenUsage | null {
     inputTokens: parsed.data.usage.input_tokens,
     outputTokens: parsed.data.usage.output_tokens,
     cacheCreationInputTokens: parsed.data.usage.cache_creation_input_tokens ?? 0,
+    cacheCreation1hInputTokens: parsed.data.usage.cache_creation?.ephemeral_1h_input_tokens ?? 0,
     cacheReadInputTokens: parsed.data.usage.cache_read_input_tokens ?? 0,
   };
 }
@@ -75,6 +81,7 @@ function extractSseUsage(body: string): TokenUsage | null {
     inputTokens: start.input_tokens,
     outputTokens,
     cacheCreationInputTokens: start.cache_creation_input_tokens ?? 0,
+    cacheCreation1hInputTokens: start.cache_creation?.ephemeral_1h_input_tokens ?? 0,
     cacheReadInputTokens: start.cache_read_input_tokens ?? 0,
   };
 }

@@ -82,6 +82,26 @@ const HANDLERS: HandlerSpec[] = [
     routePath: '/agents/{id}/runs/{runId}/logs',
     perms: 'read',
   },
+  // User-managed per-agent secrets (Phase 4 step 02). Set/delete ride the
+  // grantSecretsCrud write perms; list needs the dedicated ListSecrets grant.
+  {
+    name: 'agents-secrets-set',
+    method: HttpMethod.POST,
+    routePath: '/agents/{id}/secrets',
+    perms: 'write',
+  },
+  {
+    name: 'agents-secrets-list',
+    method: HttpMethod.GET,
+    routePath: '/agents/{id}/secrets',
+    perms: 'read',
+  },
+  {
+    name: 'agents-secrets-delete',
+    method: HttpMethod.DELETE,
+    routePath: '/agents/{id}/secrets/{name}',
+    perms: 'write',
+  },
 ];
 
 export class ApiStack extends Stack {
@@ -174,7 +194,25 @@ export class ApiStack extends Stack {
     if (spec.needsScheduler) grantSchedulerCrud(fn, props.schedulerInvokeRole);
     if (spec.name === 'agents-run-now') grantRunNowExtras(fn, props);
     if (spec.name === 'runs-logs') grantSandboxLogsRead(fn, props.config);
+    if (spec.name === 'agents-secrets-list' || spec.name === 'agents-delete') {
+      grantSecretsList(fn);
+    }
   }
+}
+
+/**
+ * secretsmanager:ListSecrets supports no resource-level scoping — '*' is the
+ * only grantable resource; the handler narrows results with a name-prefix
+ * filter in code. agents-delete needs it too for its orphan-secret sweep.
+ */
+function grantSecretsList(fn: NodejsFunction): void {
+  fn.addToRolePolicy(
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['secretsmanager:ListSecrets'],
+      resources: ['*'],
+    }),
+  );
 }
 
 /** FilterLogEvents over the sandbox task log group (account-wildcarded for credential-free synth). */
