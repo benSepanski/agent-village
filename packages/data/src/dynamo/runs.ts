@@ -1,4 +1,4 @@
-import { PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { PutCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   RunSchema,
   type Run,
@@ -235,6 +235,47 @@ export async function sumMonthCost(agentId: AgentId, now: Date): Promise<MonthCo
     exclusiveStartKey = res.LastEvaluatedKey;
   } while (exclusiveStartKey);
   return summary;
+}
+
+/**
+ * Find sandbox runs wedged in `status:'running'` — created before `olderThanIso`
+ * yet never moved to a terminal state (e.g. the lifecycle finalizer had a
+ * multi-hour outage or a poison-pill stop event was dropped). The stuck-run
+ * sweeper reuses `finalizeSandboxRun` to settle each one and free the agent's
+ * run slot.
+ *
+ * There is no index on `status`, so this is a filtered table Scan across the
+ * whole table. It is deliberately driven only by the low-frequency sweeper (a
+ * last-resort backstop) and at personal scale the table is small; a GSI keyed
+ * on `status` is the efficient alternative to introduce if run volume ever
+ * grows (see followups). Paginate so a match beyond the first page is found.
+ */
+export async function listStuckSandboxRuns(olderThanIso: string): Promise<Run[]> {
+  const { tableName } = getConfig();
+  const client = getDocumentClient();
+  const stuck: Run[] = [];
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const res = await client.send(
+      new ScanCommand({
+        TableName: tableName,
+        // `status` is a DynamoDB reserved word; alias it. Only `running` runs
+        // are sandbox runs, so no `kind` predicate is needed to exclude inline.
+        FilterExpression:
+          'begins_with(sk, :runPrefix) AND #status = :running AND createdAt < :cutoff',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':runPrefix': RUN_SK_PREFIX,
+          ':running': 'running',
+          ':cutoff': olderThanIso,
+        },
+        ExclusiveStartKey: exclusiveStartKey,
+      }),
+    );
+    for (const item of res.Items ?? []) stuck.push(RunSchema.parse(item));
+    exclusiveStartKey = res.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+  return stuck;
 }
 
 export async function getOne(agentId: AgentId, runId: RunId): Promise<Run | null> {

@@ -2,7 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import type { Table } from 'aws-cdk-lib/aws-dynamodb';
-import { Rule } from 'aws-cdk-lib/aws-events';
+import { Rule, Schedule } from 'aws-cdk-lib/aws-events';
 import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets';
 import { Effect, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import {
@@ -14,9 +14,18 @@ import {
 import { type BundlingOptions, NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup } from 'aws-cdk-lib/aws-logs';
 import { CfnScheduleGroup } from 'aws-cdk-lib/aws-scheduler';
+import type { Queue } from 'aws-cdk-lib/aws-sqs';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from '../../config/index.js';
 import { toRetention } from './log-retention.js';
+import {
+  buildDlq,
+  buildWatchdogStopTaskRole,
+  grantSandboxLaunch,
+  grantSecretRead,
+  grantWatchdogArm,
+  watchdogScheduleArnPattern,
+} from './runner-iam.js';
 import type { SandboxStack } from './sandbox-stack.js';
 
 export interface RunnerStackProps extends StackProps {
@@ -29,9 +38,29 @@ const SELF_DIR = path.dirname(fileURLToPath(import.meta.url));
 const RUNNER_ENTRY = path.resolve(SELF_DIR, '../../../runner/src/handler.ts');
 const LIFECYCLE_ENTRY = path.resolve(SELF_DIR, '../../../runner/src/lifecycle.ts');
 const GATEWAY_ENTRY = path.resolve(SELF_DIR, '../../../runner/src/gateway.ts');
+const SWEEPER_ENTRY = path.resolve(SELF_DIR, '../../../runner/src/sweeper.ts');
 
 /** Long non-streaming Anthropic generations are forwarded synchronously (buffered). */
 const GATEWAY_TIMEOUT_MINUTES = 5;
+/**
+ * Slack between the gateway's in-flight upstream abort and the Lambda's own hard
+ * timeout, so the reservation is settled inside the invocation instead of the
+ * runtime killing us mid-await. Keep GATEWAY_TIMEOUT_MINUTES as the single knob:
+ * raising it lifts both the Lambda ceiling and the upstream budget below (for
+ * long apply-bot web-search generations — Lambda hard-max is 15 min).
+ */
+const GATEWAY_DEADLINE_BUFFER_MS = 10_000;
+const GATEWAY_UPSTREAM_TIMEOUT_MS = GATEWAY_TIMEOUT_MINUTES * 60_000 - GATEWAY_DEADLINE_BUFFER_MS;
+
+/** How often the stuck-run sweeper reconciles runs wedged in `running`. */
+const SWEEPER_RATE_MINUTES = 5;
+/**
+ * EventBridge target retry window before a stop event that could not be
+ * delivered to the lifecycle Lambda (throttling, a multi-hour finalizer
+ * outage) is parked in the DLQ instead of being lost.
+ */
+const LIFECYCLE_TARGET_RETRY_ATTEMPTS = 10;
+const LIFECYCLE_TARGET_MAX_EVENT_AGE_HOURS = 6;
 
 const BUNDLING: BundlingOptions = {
   format: OutputFormat.ESM,
@@ -46,22 +75,26 @@ export class RunnerStack extends Stack {
   public readonly lifecycleFunction: NodejsFunction;
   public readonly gatewayFunction: NodejsFunction;
   public readonly gatewayFunctionUrl: FunctionUrl;
+  public readonly sweeperFunction: NodejsFunction;
   public readonly scheduleGroupName: string;
   public readonly schedulerInvokeRole: Role;
   public readonly watchdogGroupName: string;
   public readonly watchdogStopTaskRole: Role;
+  /** DLQ for stop events EventBridge could not deliver to the lifecycle Lambda. */
+  public readonly lifecycleDlq: Queue;
+  /** DLQ for watchdog StopTask invocations that failed (e.g. ECS throttle) at fire time. */
+  public readonly watchdogDlq: Queue;
 
   constructor(scope: Construct, id: string, props: RunnerStackProps) {
     super(scope, id, props);
-    const groupName = `${props.config.prefix}-agents`;
-    new CfnScheduleGroup(this, 'ScheduleGroup', { name: groupName });
-    this.scheduleGroupName = groupName;
-
-    // Run-duration kill switch: per-run one-shot schedules live in their own
-    // group so launcher/lifecycle IAM never touches the agent cron schedules.
-    this.watchdogGroupName = `${props.config.prefix}-run-watchdogs`;
-    new CfnScheduleGroup(this, 'WatchdogScheduleGroup', { name: this.watchdogGroupName });
-    this.watchdogStopTaskRole = this.buildWatchdogStopTaskRole(props.config);
+    this.scheduleGroupName = this.buildScheduleGroup(
+      'ScheduleGroup',
+      `${props.config.prefix}-agents`,
+    );
+    const watchdog = this.buildWatchdogInfra(props.config);
+    this.watchdogGroupName = watchdog.groupName;
+    this.watchdogDlq = watchdog.dlq;
+    this.watchdogStopTaskRole = watchdog.role;
 
     // Built before the runner: the launcher injects the gateway URL into tasks.
     this.gatewayFunction = this.buildGatewayFunction(props);
@@ -72,48 +105,51 @@ export class RunnerStack extends Stack {
     });
     this.runnerFunction = this.buildRunnerFunction(props);
     this.lifecycleFunction = this.buildLifecycleFunction(props);
+    this.lifecycleDlq = buildDlq(this, 'LifecycleDlq', `${props.config.prefix}-lifecycle-dlq`);
     this.buildTaskStoppedRule(props);
+    // Stuck-run sweeper: last-resort backstop that finalizes runs wedged in
+    // `running` past their max lifetime (poison-pill event / finalizer outage).
+    this.sweeperFunction = this.buildSweeperFunction(props);
     this.schedulerInvokeRole = this.buildSchedulerInvokeRole(props.config.prefix);
-    this.buildOutputs(groupName);
+    this.buildOutputs();
   }
 
-  private buildOutputs(groupName: string): void {
+  /** Create a named EventBridge Scheduler group and return its name. */
+  private buildScheduleGroup(id: string, name: string): string {
+    new CfnScheduleGroup(this, id, { name });
+    return name;
+  }
+
+  /**
+   * Run-duration kill switch: per-run one-shot StopTask schedules live in their
+   * own group so launcher/lifecycle IAM never touches the agent cron schedules.
+   * A StopTask fire the scheduler cannot deliver (ECS throttle) is parked in the
+   * DLQ instead of silently dropping the backstop.
+   */
+  private buildWatchdogInfra(config: EnvConfig): {
+    groupName: string;
+    dlq: Queue;
+    role: Role;
+  } {
+    const groupName = this.buildScheduleGroup(
+      'WatchdogScheduleGroup',
+      `${config.prefix}-run-watchdogs`,
+    );
+    const dlq = buildDlq(this, 'WatchdogDlq', `${config.prefix}-run-watchdog-dlq`);
+    const role = buildWatchdogStopTaskRole(this, config);
+    dlq.grantSendMessages(role);
+    return { groupName, dlq, role };
+  }
+
+  private buildOutputs(): void {
     new CfnOutput(this, 'RunnerFunctionArn', { value: this.runnerFunction.functionArn });
     new CfnOutput(this, 'LifecycleFunctionArn', { value: this.lifecycleFunction.functionArn });
     new CfnOutput(this, 'GatewayFunctionUrl', { value: this.gatewayFunctionUrl.url });
-    new CfnOutput(this, 'ScheduleGroupName', { value: groupName });
+    new CfnOutput(this, 'SweeperFunctionArn', { value: this.sweeperFunction.functionArn });
+    new CfnOutput(this, 'LifecycleDlqUrl', { value: this.lifecycleDlq.queueUrl });
+    new CfnOutput(this, 'WatchdogDlqUrl', { value: this.watchdogDlq.queueUrl });
+    new CfnOutput(this, 'ScheduleGroupName', { value: this.scheduleGroupName });
     new CfnOutput(this, 'SchedulerInvokeRoleArn', { value: this.schedulerInvokeRole.roleArn });
-  }
-
-  /** ECS task ARNs in the sandbox cluster; account-wildcarded for credential-free synth. */
-  private sandboxTaskArnPattern(config: EnvConfig): string {
-    return `arn:aws:ecs:${config.region}:*:task/${config.prefix}-sandbox/*`;
-  }
-
-  /** Watchdog schedule ARNs; account-wildcarded for credential-free synth. */
-  private watchdogScheduleArnPattern(config: EnvConfig): string {
-    return `arn:aws:scheduler:${config.region}:*:schedule/${this.watchdogGroupName}/*`;
-  }
-
-  /** Sandbox task-definition revision ARNs; account-wildcarded for credential-free synth. */
-  private sandboxTaskDefArnPattern(config: EnvConfig): string {
-    return `arn:aws:ecs:${config.region}:*:task-definition/${config.prefix}-sandbox:*`;
-  }
-
-  /** Role EventBridge Scheduler assumes to fire the per-run `ecs:StopTask` watchdog. */
-  private buildWatchdogStopTaskRole(config: EnvConfig): Role {
-    const role = new Role(this, 'WatchdogStopTaskRole', {
-      roleName: `${config.prefix}-run-watchdog`,
-      assumedBy: new ServicePrincipal('scheduler.amazonaws.com'),
-    });
-    role.addToPolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: ['ecs:StopTask'],
-        resources: [this.sandboxTaskArnPattern(config)],
-      }),
-    );
-    return role;
   }
 
   private logGroupFor(name: string, config: EnvConfig): LogGroup {
@@ -138,6 +174,8 @@ export class RunnerStack extends Stack {
       AV_SANDBOX_MEMORY: String(config.sandboxTaskMemoryMb),
       AV_WATCHDOG_GROUP: this.watchdogGroupName,
       AV_WATCHDOG_ROLE_ARN: this.watchdogStopTaskRole.roleArn,
+      // Failed StopTask fires are parked here instead of being silently dropped.
+      AV_WATCHDOG_DLQ_ARN: this.watchdogDlq.queueArn,
       // Metered Anthropic access (ADR 0004): the launcher points every task's
       // ANTHROPIC_BASE_URL at the gateway and allowlists its host.
       AV_GATEWAY_URL: this.gatewayFunctionUrl.url,
@@ -164,6 +202,9 @@ export class RunnerStack extends Stack {
         AV_ENV: config.env,
         AV_TABLE_NAME: table.tableName,
         AV_REGION: config.region,
+        // Configurable upstream hard timeout (resolveUpstreamTimeoutMs); derived
+        // from the Lambda timeout so the two move together.
+        AV_GATEWAY_UPSTREAM_TIMEOUT_MS: String(GATEWAY_UPSTREAM_TIMEOUT_MS),
       },
       bundling: BUNDLING,
     });
@@ -201,9 +242,14 @@ export class RunnerStack extends Stack {
       bundling: BUNDLING,
     });
     table.grantReadWriteData(fn);
-    this.grantSecretRead(fn, config);
-    this.grantSandboxLaunch(fn, props);
-    this.grantWatchdogArm(fn, config);
+    grantSecretRead(fn, config);
+    grantSandboxLaunch(
+      fn,
+      config,
+      props.sandbox.taskRole.roleArn,
+      props.sandbox.executionRole.roleArn,
+    );
+    grantWatchdogArm(fn, config, this.watchdogGroupName, this.watchdogStopTaskRole.roleArn);
     return fn;
   }
 
@@ -236,7 +282,7 @@ export class RunnerStack extends Stack {
       new PolicyStatement({
         effect: Effect.ALLOW,
         actions: ['scheduler:DeleteSchedule'],
-        resources: [this.watchdogScheduleArnPattern(config)],
+        resources: [watchdogScheduleArnPattern(config, this.watchdogGroupName)],
       }),
     );
     return fn;
@@ -250,90 +296,62 @@ export class RunnerStack extends Stack {
         detailType: ['ECS Task State Change'],
         detail: { clusterArn: [props.sandbox.cluster.clusterArn], lastStatus: ['STOPPED'] },
       },
-      targets: [new LambdaFunction(this.lifecycleFunction)],
+      targets: [
+        new LambdaFunction(this.lifecycleFunction, {
+          // A stop event EventBridge cannot deliver (finalizer throttled/out for
+          // hours) is retried, then dead-lettered — never lost. The stuck-run
+          // sweeper is the second safety net for runs still wedged after that.
+          deadLetterQueue: this.lifecycleDlq,
+          retryAttempts: LIFECYCLE_TARGET_RETRY_ATTEMPTS,
+          maxEventAge: Duration.hours(LIFECYCLE_TARGET_MAX_EVENT_AGE_HOURS),
+        }),
+      ],
     });
   }
 
-  private grantSecretRead(fn: NodejsFunction, config: EnvConfig): void {
-    const prefix = `arn:aws:secretsmanager:${config.region}:*:secret:agent-village/${config.env}/agents`;
-    fn.addToRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: ['secretsmanager:GetSecretValue'],
-        // Per-agent secrets: the Anthropic key, the typed tool-grant secrets
-        // (Notion token, GitHub PAT), and generic `secret` grants whose leaf
-        // names are user-chosen — hence the full per-agent prefix. Reserved
-        // platform leaves are still unreachable from manifests: the schema and
-        // resolveGrantEnv both reject them (isReservedSecretLeaf).
-        resources: [`${prefix}/*`],
-      }),
-    );
-  }
-
-  private grantSandboxLaunch(fn: NodejsFunction, props: RunnerStackProps): void {
-    const { config, sandbox } = props;
-    fn.addToRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        // DescribeTaskDefinition: the launcher clones the static definition
-        // when a manifest names a custom image tag (Phase 4 step 03) — same
-        // family scope as RunTask, so a clone can only be derived from (and
-        // run as) the sandbox family.
-        actions: ['ecs:RunTask', 'ecs:DescribeTaskDefinition'],
-        // Account-wildcarded so the cdk-nag suppression is deterministic when
-        // synthesizing without credentials; the family name is the real scope.
-        resources: [this.sandboxTaskDefArnPattern(config)],
-      }),
-    );
-    fn.addToRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: ['ecs:RegisterTaskDefinition'],
-        // ECS supports no resource-level scoping for RegisterTaskDefinition.
-        // The real guardrail is the iam:PassRole pin below: whatever gets
-        // registered can only run with the two sandbox roles.
-        resources: ['*'],
-      }),
-    );
-    fn.addToRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: ['iam:PassRole'],
-        resources: [sandbox.taskRole.roleArn, sandbox.executionRole.roleArn],
-        conditions: { StringEquals: { 'iam:PassedToService': 'ecs-tasks.amazonaws.com' } },
-      }),
-    );
-  }
-
   /**
-   * Kill-switch arming for the launcher: create the per-run one-shot StopTask
-   * schedule (DeleteSchedule is included because the schedule is created with
-   * ActionAfterCompletion=DELETE), pass the scheduler-assumed StopTask role,
-   * and stop the just-launched task directly when arming fails.
+   * Stuck-run sweeper Lambda: finalizes sandbox runs wedged in `running` past
+   * their maximum lifetime via the same lifecycle settlement path (idempotent,
+   * fail-safe). Mirrors the lifecycle Lambda's env + IAM: it reads/writes the
+   * table and disarms the per-run watchdog schedule as finalization does.
    */
-  private grantWatchdogArm(fn: NodejsFunction, config: EnvConfig): void {
+  private buildSweeperFunction(props: RunnerStackProps): NodejsFunction {
+    const { config, table } = props;
+    const fn = new NodejsFunction(this, 'SweeperFunction', {
+      functionName: `${config.prefix}-sweeper`,
+      entry: SWEEPER_ENTRY,
+      handler: 'handler',
+      runtime: Runtime.NODEJS_22_X,
+      architecture: Architecture.ARM_64,
+      memorySize: config.runnerMemoryMb,
+      timeout: Duration.seconds(60),
+      logGroup: this.logGroupFor('Sweeper', config),
+      environment: {
+        AV_ENV: config.env,
+        AV_TABLE_NAME: table.tableName,
+        AV_REGION: config.region,
+        AV_WATCHDOG_GROUP: this.watchdogGroupName,
+        // Reconciliation prices actual duration with the launcher's task size.
+        AV_SANDBOX_CPU: String(config.sandboxTaskCpu),
+        AV_SANDBOX_MEMORY: String(config.sandboxTaskMemoryMb),
+      },
+      bundling: BUNDLING,
+    });
+    table.grantReadWriteData(fn);
+    // Finalization disarms the per-run kill-switch schedule (best effort).
     fn.addToRolePolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
-        actions: ['scheduler:CreateSchedule', 'scheduler:DeleteSchedule'],
-        resources: [this.watchdogScheduleArnPattern(config)],
+        actions: ['scheduler:DeleteSchedule'],
+        resources: [watchdogScheduleArnPattern(config, this.watchdogGroupName)],
       }),
     );
-    fn.addToRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: ['iam:PassRole'],
-        resources: [this.watchdogStopTaskRole.roleArn],
-        conditions: { StringEquals: { 'iam:PassedToService': 'scheduler.amazonaws.com' } },
-      }),
-    );
-    fn.addToRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: ['ecs:StopTask'],
-        resources: [this.sandboxTaskArnPattern(config)],
-      }),
-    );
+    new Rule(this, 'StuckRunSweep', {
+      ruleName: `${config.prefix}-stuck-run-sweep`,
+      schedule: Schedule.rate(Duration.minutes(SWEEPER_RATE_MINUTES)),
+      targets: [new LambdaFunction(fn)],
+    });
+    return fn;
   }
 
   private buildSchedulerInvokeRole(prefix: string): Role {

@@ -25,6 +25,14 @@ import { getSchedulerClient } from './scheduling.js';
  */
 export const WATCHDOG_GRACE_MINUTES = 5;
 const MS_PER_MINUTE = 60_000;
+/**
+ * Retries before the fired StopTask is parked in the watchdog DLQ. StopTask can
+ * fail transiently at fire time (ECS API throttling), and dropping it would
+ * silently lose the run-duration backstop — so the schedule retries, then
+ * dead-letters (visible via the watchdog-fire-failed alarm) instead of the old
+ * fire-and-forget MaximumRetryAttempts:0.
+ */
+const WATCHDOG_MAX_RETRY_ATTEMPTS = 10;
 /** ISO-8601 without milliseconds or zone, the `at(...)` format Scheduler expects (UTC). */
 const AT_EXPRESSION_LENGTH = 19;
 
@@ -40,6 +48,12 @@ function watchdogRoleArn(): string {
   const roleArn = process.env['AV_WATCHDOG_ROLE_ARN'];
   if (!roleArn) throw new Error('AV_WATCHDOG_ROLE_ARN env var is required');
   return roleArn;
+}
+
+function watchdogDlqArn(): string {
+  const dlqArn = process.env['AV_WATCHDOG_DLQ_ARN'];
+  if (!dlqArn) throw new Error('AV_WATCHDOG_DLQ_ARN env var is required');
+  return dlqArn;
 }
 
 export interface ArmWatchdogInput {
@@ -74,8 +88,12 @@ async function createWatchdogSchedule(input: ArmWatchdogInput): Promise<void> {
           // "timed out" is a marker finalizeSandboxRun maps to status 'timed_out'.
           reason: `run timed out: exceeded manifest timeout of ${input.timeoutMinutes} minutes`,
         }),
-        // If the task already stopped, StopTask can never succeed — don't retry.
-        RetryPolicy: { MaximumRetryAttempts: 0 },
+        // StopTask is safe to retry: it returns success on an already-stopped
+        // task, so a retry after the task exited on its own is a harmless no-op.
+        // Retrying (then dead-lettering) is what protects the backstop from a
+        // transient ECS throttle at fire time silently dropping the StopTask.
+        RetryPolicy: { MaximumRetryAttempts: WATCHDOG_MAX_RETRY_ATTEMPTS },
+        DeadLetterConfig: { Arn: watchdogDlqArn() },
       },
     }),
   );

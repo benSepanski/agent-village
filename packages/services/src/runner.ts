@@ -28,6 +28,8 @@ import { ulid } from './ulid.js';
 
 export { finalizeSandboxRun } from './sandbox-lifecycle.js';
 export type { FinalizeSandboxRunInput } from './sandbox-lifecycle.js';
+export { sweepStuckSandboxRuns, MAX_SANDBOX_RUN_MINUTES } from './sandbox-sweeper.js';
+export type { SweepResult } from './sandbox-sweeper.js';
 export { getRunLogs } from './run-logs.js';
 export type { RunLogEvent, RunLogsPage, RunLogsQuery } from './run-logs.js';
 export { getRun, listForAgent, monthToDateSpend } from './run-queries.js';

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SpendLimitExceededError, actualCost, estimateGatewayCall } from '@agent-village/domain';
 import { AgentId, RunId } from '@agent-village/shared';
 
@@ -18,6 +18,7 @@ vi.mock('@agent-village/data', () => ({
 import {
   handleGatewayRequest,
   resetGatewayKeyCache,
+  resolveUpstreamTimeoutMs,
   setGatewayFetch,
   type GatewayRequest,
 } from './anthropic-gateway.js';
@@ -251,6 +252,19 @@ describe('handleGatewayRequest — reserve → forward → reconcile', () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it('retains the reservation and answers non-retryable when an in-flight call is aborted', async () => {
+    // F4: the aborted generation may already be billed server-side. A full
+    // refund would under-count the cap and the old retryable 502 would invite
+    // the SDK to retry and pay again. Keep the worst-case reservation and return
+    // a status the Anthropic SDK does not auto-retry (499, not 5xx/408/409/429).
+    fetchMock.mockRejectedValue(new DOMException('upstream timed out', 'TimeoutError'));
+    const res = await handleGatewayRequest(request({ deadlineMs: Date.now() + 60_000 }));
+    expect(res.status).toBe(499);
+    expect(res.status).not.toBe(502);
+    expect(agentRepoMock.finalizeSpend).not.toHaveBeenCalled();
+    expect(runRepoMock.addRunUsage).not.toHaveBeenCalled();
+  });
+
   it('keeps the reservation (no finalize) when a 2xx body has no parseable usage', async () => {
     upstream(200, '{"weird": true}');
     const res = await handleGatewayRequest(request());
@@ -328,5 +342,40 @@ describe('handleGatewayRequest — exhaustion', () => {
     runRepoMock.patchRun.mockRejectedValue(new Error('ddb down'));
     const res = await handleGatewayRequest(request());
     expect(res.status).toBe(402);
+  });
+});
+
+describe('resolveUpstreamTimeoutMs — configurable hard timeout (F6)', () => {
+  const ENV_KEY = 'AV_GATEWAY_UPSTREAM_TIMEOUT_MS';
+  const original = process.env[ENV_KEY];
+
+  afterEach(() => {
+    if (original === undefined) delete process.env[ENV_KEY];
+    else process.env[ENV_KEY] = original;
+  });
+
+  it('defaults to the ~5-min budget when the env var is unset', () => {
+    delete process.env[ENV_KEY];
+    expect(resolveUpstreamTimeoutMs()).toBe(290_000);
+  });
+
+  it('honors an in-bounds override', () => {
+    process.env[ENV_KEY] = '600000';
+    expect(resolveUpstreamTimeoutMs()).toBe(600_000);
+  });
+
+  it('clamps an override below the floor up to the minimum', () => {
+    process.env[ENV_KEY] = '1000';
+    expect(resolveUpstreamTimeoutMs()).toBe(30_000);
+  });
+
+  it('clamps an override above the ceiling down to the maximum', () => {
+    process.env[ENV_KEY] = '5400000';
+    expect(resolveUpstreamTimeoutMs()).toBe(900_000);
+  });
+
+  it('falls back to the default for a non-numeric override', () => {
+    process.env[ENV_KEY] = 'forever';
+    expect(resolveUpstreamTimeoutMs()).toBe(290_000);
   });
 });

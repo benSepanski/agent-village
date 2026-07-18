@@ -1,9 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { PutCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { RunNotFoundError } from '@agent-village/domain';
 import { createDynamoMock, type DynamoMock } from '../../test-utils/dynamodb-mock.js';
 import { resetDocumentClient } from './client.js';
-import { addRunUsage, append, getOne, listForAgent, patchRun, sumMonthCost } from './runs.js';
+import {
+  addRunUsage,
+  append,
+  getOne,
+  listForAgent,
+  listStuckSandboxRuns,
+  patchRun,
+  sumMonthCost,
+} from './runs.js';
 
 const SUB = 'cog-sub-abc';
 const AGENT_ID = '01HZ1234567890ABCDEFGHJKMN';
@@ -106,6 +114,52 @@ describe('getOne', () => {
       .resolvesOnce({ Items: [] });
     expect(await getOne(AGENT_ID, RUN_ID)).toBeNull();
     expect(mock.commandCalls(QueryCommand)).toHaveLength(2);
+  });
+});
+
+describe('listStuckSandboxRuns', () => {
+  const CUTOFF = '2026-05-16T11:30:00.000Z';
+  const stuckItem = {
+    ...runItem,
+    status: 'running',
+    kind: 'sandbox',
+    model: null,
+    systemPromptHash: null,
+    reservedUsd: 0.006,
+    createdAt: '2026-05-16T10:00:00.000Z',
+  };
+
+  it('scans for running runs older than the cutoff and re-parses matches', async () => {
+    mock.on(ScanCommand).resolves({ Items: [stuckItem] });
+    const runs = await listStuckSandboxRuns(CUTOFF);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.status).toBe('running');
+    const call = mock.commandCalls(ScanCommand)[0]!;
+    expect(call.args[0].input.FilterExpression).toContain('#status = :running');
+    expect(call.args[0].input.FilterExpression).toContain('createdAt < :cutoff');
+    expect(call.args[0].input.ExpressionAttributeNames).toEqual({ '#status': 'status' });
+    expect(call.args[0].input.ExpressionAttributeValues).toEqual({
+      ':runPrefix': 'RUN#',
+      ':running': 'running',
+      ':cutoff': CUTOFF,
+    });
+  });
+
+  it('returns an empty list when nothing is wedged', async () => {
+    mock.on(ScanCommand).resolves({ Items: [] });
+    expect(await listStuckSandboxRuns(CUTOFF)).toEqual([]);
+  });
+
+  it('paginates across every scan page', async () => {
+    mock
+      .on(ScanCommand)
+      .resolvesOnce({ Items: [stuckItem], LastEvaluatedKey: { pk: 'x', sk: 'y' } })
+      .resolvesOnce({ Items: [{ ...stuckItem, id: '01HZAAAAAAAAAAAAAAAAAAAAAA' }] });
+    const runs = await listStuckSandboxRuns(CUTOFF);
+    expect(runs).toHaveLength(2);
+    const calls = mock.commandCalls(ScanCommand);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.args[0].input.ExclusiveStartKey).toEqual({ pk: 'x', sk: 'y' });
   });
 });
 

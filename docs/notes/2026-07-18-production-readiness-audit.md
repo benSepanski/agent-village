@@ -44,7 +44,45 @@ the rest are deferred with concrete fix sketches below.**
 - **[low] Malformed JSON → 500** — `middleware.errorResponse` now maps
   `SyntaxError` to 400.
 
-## Deferred (fix sketches; slot into a phase when touched)
+## Deferred — all closed 2026-07-18 (second pass)
+
+The six items below were closed in a follow-up pass (multi-agent implement +
+adversarial review, then a hand-reconciled integration). `pnpm lint typecheck
+test`, `format:check`, `deps:check`, and `synth:dev` are all green. Summary of
+what shipped:
+
+- **[med] DLQ + stuck-run sweeper** — SQS DLQ on the `SandboxTaskStopped` target
+  (bounded retry: 10 attempts / 6 h) plus a `rate(5 min)` sweeper Lambda
+  (`packages/runner/src/sweeper.ts` → `sweepStuckSandboxRuns` →
+  `listStuckSandboxRuns`) that finalizes runs wedged in `running` past
+  max-lifetime by **reusing** `finalizeSandboxRun` (idempotent via
+  `claimRunReservation`, per-run try/catch). Threshold = 155 min (120 max
+  timeout + 5 watchdog grace + 30 safety).
+- **[med] Watchdog retry/DLQ/alarm** — scheduler `StopTask` target now
+  `MaximumRetryAttempts: 10` + a watchdog DLQ (role `sqs:SendMessage` scoped to
+  it); the false "StopTask can never succeed if already stopped" comment is
+  corrected. New `MonitoringStack` alarms (`buildResilienceAlarms`): lifecycle-
+  DLQ, watchdog-DLQ (`ApproximateNumberOfMessagesVisible > 0`), and
+  sweeper-errors, all paging the existing alarm topic.
+- **[low] EMF run-outcome double-count** — `reconcileComputeSpend` returns
+  whether THIS invocation won the reservation claim; the finalized log gates
+  `runOutcomeMetric` on that won-write signal instead of the pre-read snapshot,
+  so a redelivered STOPPED event counts each outcome once.
+- **[low] Deadline-abort refund asymmetry** — an in-flight abort
+  (`isUpstreamAbort`) now retains the worst-case reservation and returns a
+  non-retryable 499 (was full-refund + retryable 502), so a possibly-billed
+  generation isn't paid twice; a genuine connection failure still refunds + 502.
+- **[low] IPv6 egress fail-open** — `proxy-image/entrypoint.sh` adds
+  `ip6tables -P OUTPUT DROP` (+ loopback / IPv6-DNS exemptions), guarded so a
+  missing `ip6tables` still fails closed without crashing startup.
+- **[low] Gateway timeout configurable** — `resolveUpstreamTimeoutMs` reads
+  `AV_GATEWAY_UPSTREAM_TIMEOUT_MS` (default 290 s, clamped 30 s–15 min), wired
+  onto the gateway Lambda from `GATEWAY_TIMEOUT_MINUTES` so that one constant
+  stays the single knob for long apply-bot generations. The upstream-call
+  concern moved to `packages/services/src/gateway-upstream.ts`; the runner IAM /
+  DLQ / watchdog-role helpers moved to `packages/infra/src/stacks/runner-iam.ts`.
+
+Original deferred sketches (kept for provenance):
 
 - **[med] No DLQ / stuck-run reconciler** — the `SandboxTaskStopped` EventBridge
   rule (`runner-stack.ts`) has no DLQ, and there is no sweeper for runs stuck in
