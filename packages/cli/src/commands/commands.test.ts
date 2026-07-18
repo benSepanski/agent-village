@@ -4,9 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { setApiClient, type ApiClient } from '../client.js';
+import { agentsCreate } from './agents-create.js';
 import { agentsList } from './agents-list.js';
 import { agentsManifest } from './agents-manifest.js';
+import { agentsRm } from './agents-rm.js';
 import { agentsShow } from './agents-show.js';
+import { agentsUpdate } from './agents-update.js';
 import { logs } from './logs.js';
 import { run } from './run.js';
 import { secretsList } from './secrets-list.js';
@@ -388,6 +391,106 @@ describe('secrets rm', () => {
     expect(del).toHaveBeenCalledWith(`/agents/${AGENT_ID}/secrets/gmail-app-password`);
     expect(out).toContain('deleted');
     expect(out).toContain('gmail-app-password');
+  });
+});
+
+describe('agents create', () => {
+  const validInput = {
+    name: 'Daily',
+    model: 'claude-sonnet-5',
+    systemPrompt: 'hi',
+    schedule: null,
+    spendLimitUsd: 1,
+    anthropicApiKey: 'sk-ant-test',
+  };
+
+  it('parses locally, POSTs, and prints id + name', async () => {
+    const post = vi.fn().mockResolvedValue({ id: AGENT_ID, name: 'Daily' });
+    setApiClient(fakeClient({ post }));
+    const stdin = Readable.from([Buffer.from(JSON.stringify(validInput))]);
+    const out = await agentsCreate({ file: '-', stdin });
+    expect(post).toHaveBeenCalledWith('/agents', validInput);
+    expect(out).toContain(AGENT_ID);
+    expect(out).toContain('Daily');
+  });
+
+  it('reads from a file path', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'av-cli-'));
+    const filePath = join(dir, 'agent.json');
+    await writeFile(filePath, JSON.stringify(validInput));
+    const post = vi.fn().mockResolvedValue({ id: AGENT_ID, name: 'Daily' });
+    setApiClient(fakeClient({ post }));
+    const out = await agentsCreate({ file: filePath });
+    expect(post).toHaveBeenCalledWith('/agents', validInput);
+    expect(out).toContain('Daily');
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('fails fast on invalid input without making an HTTP call', async () => {
+    const post = vi.fn();
+    setApiClient(fakeClient({ post }));
+    const stdin = Readable.from([Buffer.from(JSON.stringify({ name: 'Daily' }))]);
+    await expect(agentsCreate({ file: '-', stdin })).rejects.toThrow(/Invalid input/);
+    expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe('agents update', () => {
+  it('parses locally, PATCHes, and prints confirmation', async () => {
+    const patch = vi.fn().mockResolvedValue({ id: AGENT_ID, name: 'Renamed' });
+    setApiClient(fakeClient({ patch }));
+    const stdin = Readable.from([Buffer.from(JSON.stringify({ name: 'Renamed' }))]);
+    const out = await agentsUpdate(AGENT_ID, { file: '-', stdin });
+    expect(patch).toHaveBeenCalledWith(`/agents/${AGENT_ID}`, { name: 'Renamed' });
+    expect(out).toContain('Renamed');
+    expect(out).toContain('updated');
+  });
+
+  it('fails fast on invalid input without making an HTTP call', async () => {
+    const patch = vi.fn();
+    setApiClient(fakeClient({ patch }));
+    const stdin = Readable.from([Buffer.from(JSON.stringify({ spendLimitUsd: -1 }))]);
+    await expect(agentsUpdate(AGENT_ID, { file: '-', stdin })).rejects.toThrow(/Invalid input/);
+    expect(patch).not.toHaveBeenCalled();
+  });
+});
+
+describe('agents rm', () => {
+  it('DELETEs immediately with --yes, no prompt', async () => {
+    const del = vi.fn().mockResolvedValue(undefined);
+    setApiClient(fakeClient({ del }));
+    const out = await agentsRm(AGENT_ID, { yes: true });
+    expect(del).toHaveBeenCalledWith(`/agents/${AGENT_ID}`);
+    expect(out).toContain('deleted');
+  });
+
+  it('refuses on a non-TTY without --yes', async () => {
+    const del = vi.fn();
+    setApiClient(fakeClient({ del }));
+    await expect(agentsRm(AGENT_ID, { isTTY: false })).rejects.toThrow(/--yes/);
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it('cancels when the TTY confirmation is not "y"', async () => {
+    const del = vi.fn();
+    setApiClient(fakeClient({ del }));
+    const out = await agentsRm(AGENT_ID, {
+      isTTY: true,
+      confirmPrompt: async () => 'n',
+    });
+    expect(del).not.toHaveBeenCalled();
+    expect(out).toContain('cancelled');
+  });
+
+  it('deletes when the TTY confirmation is "y"', async () => {
+    const del = vi.fn().mockResolvedValue(undefined);
+    setApiClient(fakeClient({ del }));
+    const out = await agentsRm(AGENT_ID, {
+      isTTY: true,
+      confirmPrompt: async () => 'y',
+    });
+    expect(del).toHaveBeenCalledWith(`/agents/${AGENT_ID}`);
+    expect(out).toContain('deleted');
   });
 });
 

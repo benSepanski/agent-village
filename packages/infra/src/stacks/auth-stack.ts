@@ -1,4 +1,4 @@
-import { Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import {
   AccountRecovery,
   Mfa,
@@ -18,6 +18,7 @@ export interface AuthStackProps extends StackProps {
 export class AuthStack extends Stack {
   public readonly userPool: IUserPool;
   public readonly userPoolClient: UserPoolClient;
+  public readonly cliClient: UserPoolClient;
 
   constructor(scope: Construct, id: string, props: AuthStackProps) {
     super(scope, id, props);
@@ -57,5 +58,19 @@ export class AuthStack extends Stack {
       },
       supportedIdentityProviders: [UserPoolClientIdentityProvider.COGNITO],
     });
+
+    // CLI app client: USER_PASSWORD_AUTH direct to Cognito over TLS, no
+    // hosted-UI/OAuth block (see the nag suppression rationale in bin/app.ts
+    // for why this replaces SRP for the CLI).
+    this.cliClient = pool.addClient('CliClient', {
+      userPoolClientName: `${config.prefix}-cli`,
+      authFlows: { userPassword: true },
+      accessTokenValidity: Duration.minutes(60),
+      idTokenValidity: Duration.minutes(60),
+      refreshTokenValidity: Duration.days(30),
+      preventUserExistenceErrors: true,
+      supportedIdentityProviders: [UserPoolClientIdentityProvider.COGNITO],
+    });
+    new CfnOutput(this, 'CliClientId', { value: this.cliClient.userPoolClientId });
   }
 }
