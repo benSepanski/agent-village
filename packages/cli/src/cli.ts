@@ -6,6 +6,7 @@ import { agentsRm } from './commands/agents-rm.js';
 import { agentsShow } from './commands/agents-show.js';
 import { agentsUpdate } from './commands/agents-update.js';
 import { doctor } from './commands/doctor.js';
+import { init } from './commands/init.js';
 import { login } from './commands/login.js';
 import { logout } from './commands/logout.js';
 import { logs } from './commands/logs.js';
@@ -162,6 +163,13 @@ export function buildCli(): Command {
   registerAgents(program);
   registerSecrets(program);
   registerWorkspace(program);
+
+  program
+    .command('init <dir>')
+    .description('Scaffold a new one-off agent-village app in <dir>')
+    .action(async (dir: string) => {
+      process.stdout.write(`${await init(dir)}\n`);
+    });
 
   program
     .command('run <agentId>')

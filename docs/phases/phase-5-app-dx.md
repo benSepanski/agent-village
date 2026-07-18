@@ -26,9 +26,9 @@ Today three gaps block that:
 | 02   | CLI workspace commands: `village workspace ls / push / pull / rm`                                                                         | 📋     |
 | 03   | `village login` / `logout` + persisted CLI config; a Cognito CLI app client (`USER_PASSWORD_AUTH`)                                        | 📋     |
 | 04   | CLI agent lifecycle: `village agents create / update / rm`                                                                                | 📋     |
-| 05   | Installable CLI: bundled single-file build + `pnpm cli:pack` tarball an app repo can `npm i -g`                                           | 📋     |
-| 06   | `village init` — scaffold a new app repo (manifest, app script, README, lockfile-ready package.json)                                      | 📋     |
-| 07   | `docs/app-development.md` — the external app-builder guide + capability mapping for the driving apps; doc index/README/roadmap updates    | 📋     |
+| 05   | Installable CLI: bundled single-file build + `pnpm cli:pack` tarball an app repo can `npm i -g`                                           | ✅     |
+| 06   | `village init` — scaffold a new app repo (manifest, app script, README, lockfile-ready package.json)                                      | ✅     |
+| 07   | `docs/app-development.md` — the external app-builder guide + capability mapping for the driving apps; doc index/README/roadmap updates    | ✅     |
 
 ## Step notes
 

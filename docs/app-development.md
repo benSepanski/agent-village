@@ -52,8 +52,8 @@ And it is subject to:
 - **Kill switch** — the run is stopped at `manifest.timeoutMinutes`.
 - **One run at a time** — per agent; a second trigger while one is running
   is rejected. The in-flight run is the only writer to the workspace.
-- **`manifest.env` limits** — ≤20 entries, ≤2048-char values, UPPER*SNAKE
-  names, `AV*`/`ANTHROPIC*`/`AWS*` prefixes reserved.
+- **`manifest.env` limits** — ≤20 entries, ≤2048-char values,
+  `UPPER_SNAKE_CASE` names, `AV_` / `ANTHROPIC_` / `AWS_` prefixes reserved.
 
 ## Build → run lifecycle (all from your app repo)
 
