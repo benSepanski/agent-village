@@ -59,9 +59,11 @@ export class AuthStack extends Stack {
       supportedIdentityProviders: [UserPoolClientIdentityProvider.COGNITO],
     });
 
-    // CLI app client: USER_PASSWORD_AUTH direct to Cognito over TLS, no
-    // hosted-UI/OAuth block (see the nag suppression rationale in bin/app.ts
-    // for why this replaces SRP for the CLI).
+    // CLI app client: USER_PASSWORD_AUTH is chosen (instead of SRP, like
+    // SpaClient above) so the CLI can log in with just a username/password
+    // over TLS direct to Cognito, without a browser or an SRP
+    // implementation in Node. No hosted-UI/OAuth block is needed either.
+    // This didn't fire a cdk-nag rule, so there is no suppression to track.
     this.cliClient = pool.addClient('CliClient', {
       userPoolClientName: `${config.prefix}-cli`,
       authFlows: { userPassword: true },

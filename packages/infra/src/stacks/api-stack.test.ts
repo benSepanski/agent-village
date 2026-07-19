@@ -91,4 +91,19 @@ describe('ApiStack workspace routes', () => {
       }),
     });
   });
+
+  it('does not grant the presign handler agent-secrets Secrets Manager CRUD (perms: read, not write)', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyName: Match.stringLikeRegexp('agentsworkspacepresignFnServiceRoleDefaultPolicy'),
+      PolicyDocument: Match.objectLike({
+        Statement: Match.not(
+          Match.arrayWith([
+            Match.objectLike({
+              Action: Match.arrayWith([Match.stringLikeRegexp('^secretsmanager:')]),
+            }),
+          ]),
+        ),
+      }),
+    });
+  });
 });

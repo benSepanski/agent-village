@@ -31,7 +31,7 @@ model for "an app is a manifest + a synced workspace, zero platform changes."
 | [2 — sandboxed application runs](phases/phase-2-sandbox-runs.md)           | ✅ done                           |
 | [3 — one-off applications, safely](phases/phase-3-application-platform.md) | ✅ done (incl. post-review fixes) |
 | [4 — apply-bot enablement](phases/phase-4-apply-bot-enablement.md)         | ✅ done                           |
-| [5 — external app DX](phases/phase-5-app-dx.md)                            | 🚧 in progress                    |
+| [5 — external app DX](phases/phase-5-app-dx.md)                            | ✅ done                           |
 | [6+ — sketch](phases/phase-2-plus.md)                                      | 📋 sketched                       |
 
 ## Next concrete goal — apply-bot as a manifest app
@@ -75,6 +75,8 @@ the agent-secrets CLI/API, and per-manifest images graduated into
 - **Gateway model pricing table** — keep the priced model set current.
 - **Per-manifest cpu/memory sizing** — Phase 4 keeps every task at the base
   size so the single-size cost model holds; daemon-scale apps will want more.
+- **STS-narrowed workspace presigning** — per-request session policy so the
+  presign Lambda's IAM is not bucket-wide.
 
 Deferred from the Phase 3 review (2026-07-08), low severity, documented in the
 [phase 3 doc](phases/phase-3-application-platform.md#post-implementation-review-2026-07-08):

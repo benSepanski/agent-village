@@ -37,3 +37,4 @@ Every handler derives `ownerSub` from the gateway-verified JWT (`ctx.cognitoSub`
 
 - All users share one DynamoDB table and one Lambda fleet — isolation is logical (keys + IAM), not physical. There is no per-tenant encryption key.
 - `ses` grants are only enforceable (and only mint a task-role ceiling) when `config.sesSenderDomain` is set for the environment; without a verified SES identity they are inert and sends fail at runtime.
+- The workspace-presign Lambda's IAM role holds `s3:GetObject`/`PutObject`/`DeleteObject` on the whole workspace bucket, not scoped per caller — presigned URLs are key-scoped, but the role that mints them isn't. The app-layer ownership check in `services/workspace.ts` (`assertAgentOwned`) is the sole narrowing for the workspace HTTP API. STS-narrowed presigning (a per-request session policy, like the sandbox launcher already does) is the hardening option if multi-tenant trust grows.

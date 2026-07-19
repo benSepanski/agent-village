@@ -1,3 +1,6 @@
+import type * as NodeFsPromises from 'node:fs/promises';
+import type * as NodeOs from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -177,8 +180,36 @@ describe('saveCredentials', () => {
     expect(mocks.writeFile).toHaveBeenCalledWith(
       expect.stringContaining('credentials'),
       JSON.stringify(SAMPLE_IDP),
-      'utf8',
+      { encoding: 'utf8', mode: 0o600 },
     );
+    expect(mocks.mkdir).toHaveBeenCalledWith(expect.any(String), {
+      recursive: true,
+      mode: 0o700,
+    });
+  });
+
+  it('writes the fallback credentials file with 0600 permissions on disk', async () => {
+    const os = await vi.importActual<typeof NodeOs>('node:os');
+    const fsActual = await vi.importActual<typeof NodeFsPromises>('node:fs/promises');
+    const dir = await fsActual.mkdtemp(join(os.tmpdir(), 'av-cli-auth-'));
+    try {
+      vi.doMock('node:os', () => ({ ...os, homedir: () => dir }));
+      mocks.mkdir.mockImplementation(fsActual.mkdir);
+      mocks.writeFile.mockImplementation(fsActual.writeFile);
+      mocks.EntryCtor.mockImplementation(function () {
+        throw new Error('native binding missing');
+      });
+
+      const { saveCredentials } = await import('./auth.js');
+      await saveCredentials(SAMPLE_IDP);
+
+      const credPath = join(dir, '.config', 'agent-village', 'credentials');
+      const stats = await fsActual.stat(credPath);
+      expect(stats.mode & 0o777).toBe(0o600);
+    } finally {
+      vi.doUnmock('node:os');
+      await fsActual.rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -115,7 +115,10 @@ const HANDLERS: HandlerSpec[] = [
     name: 'agents-workspace-presign',
     method: HttpMethod.POST,
     routePath: '/agents/{id}/workspace/presign',
-    perms: 'write',
+    // Only reads the agent record; the S3 GetObject/PutObject/DeleteObject
+    // abilities it needs come from grantWorkspaceExtras below, not from the
+    // agent-secrets Secrets Manager CRUD that 'write' would also grant.
+    perms: 'read',
   },
 ];
 

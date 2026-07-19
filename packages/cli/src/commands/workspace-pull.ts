@@ -17,6 +17,8 @@ function filterByPrefix(entries: WorkspaceEntry[], prefix: string | undefined): 
   return entries.filter((e) => e.path === prefix || e.path.startsWith(`${prefix}/`));
 }
 
+const TRUNCATED_NOTE = '(truncated: only the first 1000 files were listed and pulled)';
+
 export async function workspacePull(
   agentId: string,
   destDir = '.',
@@ -25,7 +27,10 @@ export async function workspacePull(
   const c = await client();
   const listing = await c.get<ListWorkspaceResponse>(`/agents/${agentId}/workspace`);
   const entries = filterByPrefix(listing.entries, opts.prefix);
-  if (entries.length === 0) return 'nothing to pull';
+  if (entries.length === 0) {
+    const empty = 'nothing to pull';
+    return listing.truncated ? `${empty}\n\n${TRUNCATED_NOTE}` : empty;
+  }
   const presigned = await presignBatches(
     c,
     agentId,
@@ -38,5 +43,6 @@ export async function workspacePull(
     const size = await getFile(url.url, dest, e.path);
     downloaded.push({ path: e.path, size });
   }
-  return transferSummary(downloaded);
+  const summary = transferSummary(downloaded);
+  return listing.truncated ? `${summary}\n\n${TRUNCATED_NOTE}` : summary;
 }

@@ -218,6 +218,46 @@ describe('workspace pull', () => {
 
     await rm(dir, { recursive: true, force: true });
   });
+
+  it('appends a truncated note after downloading when the listing was truncated', async () => {
+    const dir = await tmpDir();
+    const get = vi.fn().mockResolvedValue({
+      entries: [{ path: 'a.txt', size: 5, lastModified: '2026-05-16T12:00:00.000Z' }],
+      truncated: true,
+    });
+    const post = vi.fn().mockResolvedValue({
+      urls: [{ path: 'a.txt', op: 'get', url: 'https://s3.example/a.txt', expiresAt: 'x' }],
+    });
+    setApiClient(fakeClient({ get, post }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(fakeResponse({ body: 'hello' })));
+
+    const out = await workspacePull(AGENT_ID, dir);
+
+    expect(out).toContain('truncated');
+    expect(out).toContain('1000');
+
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('appends a truncated note even when a --prefix filter matches nothing', async () => {
+    const dir = await tmpDir();
+    const get = vi.fn().mockResolvedValue({
+      entries: [{ path: 'other/a.txt', size: 5, lastModified: '2026-05-16T12:00:00.000Z' }],
+      truncated: true,
+    });
+    const post = vi.fn();
+    setApiClient(fakeClient({ get, post }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const out = await workspacePull(AGENT_ID, dir, { prefix: 'nomatch' });
+
+    expect(out).toContain('nothing to pull');
+    expect(out).toContain('truncated');
+    expect(post).not.toHaveBeenCalled();
+
+    await rm(dir, { recursive: true, force: true });
+  });
 });
 
 describe('workspace rm', () => {

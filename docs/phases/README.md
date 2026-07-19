@@ -5,15 +5,15 @@ acceptance criteria. For future direction and goals (the "what next / why") see
 the [roadmap](../roadmap.md); for informal agent working notes see
 [`notes/`](../notes/README.md).
 
-| Phase                                | Status     | Goal                                                                               |
-| ------------------------------------ | ---------- | ---------------------------------------------------------------------------------- |
-| [0](phase-0-harness.md)              | ✅ done    | Harness only — no product code. Lint, layers, tests, CI/CD, docs, CDK stacks.      |
-| [1](phase-1-mvp.md)                  | ✅ done    | MVP — auth + Agent CRUD + scheduled Anthropic call + Run viewer.                   |
-| [2](phase-2-sandbox-runs.md)         | ✅ done    | Sandboxed application runs — Fargate + S3 workspaces + egress + grants.            |
-| [3](phase-3-application-platform.md) | ✅ done    | One-off apps, safely — metered LLM spend, kill switch, proxy ports, secret grants. |
-| [4](phase-4-apply-bot-enablement.md) | ✅ done    | apply-bot enablement — `manifest.env`, agent-secrets CLI/API, `manifest.image`.    |
-| [5](phase-5-app-dx.md)               | 📋 planned | External app DX — workspace API, `village login`/CRUD, installable CLI, app guide. |
-| [6+](phase-2-plus.md)                | 📋 sketch  | Notifications, more tools, multi-user, audit summarizer, daemon apps.              |
+| Phase                                | Status    | Goal                                                                               |
+| ------------------------------------ | --------- | ---------------------------------------------------------------------------------- |
+| [0](phase-0-harness.md)              | ✅ done   | Harness only — no product code. Lint, layers, tests, CI/CD, docs, CDK stacks.      |
+| [1](phase-1-mvp.md)                  | ✅ done   | MVP — auth + Agent CRUD + scheduled Anthropic call + Run viewer.                   |
+| [2](phase-2-sandbox-runs.md)         | ✅ done   | Sandboxed application runs — Fargate + S3 workspaces + egress + grants.            |
+| [3](phase-3-application-platform.md) | ✅ done   | One-off apps, safely — metered LLM spend, kill switch, proxy ports, secret grants. |
+| [4](phase-4-apply-bot-enablement.md) | ✅ done   | apply-bot enablement — `manifest.env`, agent-secrets CLI/API, `manifest.image`.    |
+| [5](phase-5-app-dx.md)               | ✅ done   | External app DX — workspace API, `village login`/CRUD, installable CLI, app guide. |
+| [6+](phase-2-plus.md)                | 📋 sketch | Notifications, more tools, multi-user, audit summarizer, daemon apps.              |
 
 ## Working on a phase
 

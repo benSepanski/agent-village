@@ -161,8 +161,8 @@ export async function saveCredentials(creds: StoredCredentials): Promise<void> {
     }
   }
   warnNoKeyring();
-  await mkdir(dirname(CRED_PATH), { recursive: true });
-  await writeFile(CRED_PATH, JSON.stringify(creds), 'utf8');
+  await mkdir(dirname(CRED_PATH), { recursive: true, mode: 0o700 });
+  await writeFile(CRED_PATH, JSON.stringify(creds), { encoding: 'utf8', mode: 0o600 });
 }
 
 /** Delete stored credentials from both the keychain and the plaintext-fallback file, if present. */
