@@ -1,6 +1,6 @@
 {
   "name": "@agent-village/cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
@@ -13,6 +13,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "bundle": "esbuild bin/village.js --bundle --platform=node --target=node22 --format=esm --outfile=dist/pkg/village.mjs --external:@napi-rs/keyring --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
     "lint": "eslint src --max-warnings=0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
@@ -26,6 +27,7 @@
     "kleur": "^4.1.5"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0"
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.28.1"
   }
 }

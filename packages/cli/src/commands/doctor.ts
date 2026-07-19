@@ -1,5 +1,6 @@
 import kleur from 'kleur';
 import { openKeyring } from '../auth.js';
+import { resolveApiUrl } from '../config.js';
 
 interface Check {
   name: string;
@@ -7,7 +8,12 @@ interface Check {
 }
 
 async function checkApiUrl(): Promise<boolean> {
-  return Boolean(process.env['AV_API_URL']);
+  try {
+    await resolveApiUrl();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function checkAccessToken(): Promise<boolean> {
@@ -29,7 +35,7 @@ async function checkLocalStack(): Promise<boolean> {
 }
 
 const CHECKS: Check[] = [
-  { name: 'AV_API_URL is set', check: checkApiUrl },
+  { name: 'API URL configured (AV_API_URL env or saved config)', check: checkApiUrl },
   { name: 'AV_ACCESS_TOKEN is set (or refresh token configured)', check: checkAccessToken },
   { name: 'OS keychain reachable', check: checkKeychain },
   { name: 'DynamoDB Local reachable', check: checkLocalStack },

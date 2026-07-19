@@ -17,6 +17,7 @@
     "test": "turbo run test",
     "synth": "turbo run synth",
     "dev": "turbo run dev --parallel",
+    "cli:pack": "pnpm --filter @agent-village/cli bundle && node packages/cli/scripts/pack.mjs",
     "clean": "turbo run clean && rm -rf node_modules .turbo",
     "format": "prettier --write \"**/*.{ts,tsx,js,cjs,mjs,json,md,yml,yaml}\" --ignore-path .gitignore --ignore-path .prettierignore",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,cjs,mjs,json,md,yml,yaml}\" --ignore-path .gitignore --ignore-path .prettierignore",

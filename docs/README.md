@@ -2,6 +2,13 @@
 
 Each link below answers one question in one screen. Pattern-match against the question and click through.
 
+## I want to build an application on the platform
+
+[app-development.md](app-development.md) — the external app-builder guide: the
+app contract, the full CLI lifecycle from a separate repo, custom runtimes,
+and what the driving apps (apply-bot, D&D assistant, recipes bot, OpenClaw)
+can and cannot do today. Reference app: [`examples/gmail-agent`](../examples/gmail-agent/).
+
 ## I'm new — what do I read first?
 
 1. [Architecture topology](architecture/topology.md) — what AWS components exist and how requests flow through them.
@@ -90,8 +97,9 @@ Each link below answers one question in one screen. Pattern-match against the qu
 - [Phase 1 — MVP](phases/phase-1-mvp.md) — delivered; the spec plus known deviations as shipped.
 - [Phase 2 — sandboxed application runs](phases/phase-2-sandbox-runs.md) — done; the step table shows what landed.
 - [Phase 3 — one-off applications, safely](phases/phase-3-application-platform.md) — done, including the post-review fixes.
-- [Phase 4 — apply-bot enablement](phases/phase-4-apply-bot-enablement.md) — planned; the current execution plan.
-- [Phase 5+ roadmap](phases/phase-2-plus.md) — sketched, not detailed.
+- [Phase 4 — apply-bot enablement](phases/phase-4-apply-bot-enablement.md) — done; `manifest.env`, agent secrets, `manifest.image`.
+- [Phase 5 — external app DX](phases/phase-5-app-dx.md) — the current execution plan: make the platform consumable from separate app repos.
+- [Phase 6+ roadmap](phases/phase-2-plus.md) — sketched, not detailed.
 - [Agent notes](notes/README.md) — informal session handoffs / working notes left for the next run.
 
 ## Where do I write forward-looking material?

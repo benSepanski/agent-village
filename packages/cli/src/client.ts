@@ -1,4 +1,5 @@
 import { getAccessToken } from './auth.js';
+import { resolveApiUrl } from './config.js';
 
 export interface ApiClient {
   get<T>(path: string): Promise<T>;
@@ -33,8 +34,7 @@ async function request<T>(args: RequestArgs): Promise<T> {
 }
 
 export async function getClient(): Promise<ApiClient> {
-  const baseUrl = process.env['AV_API_URL'];
-  if (!baseUrl) throw new Error('AV_API_URL environment variable is required');
+  const baseUrl = await resolveApiUrl();
   const token = await getAccessToken();
   return {
     get: <T>(path: string) => request<T>({ method: 'GET', baseUrl, token, path }),

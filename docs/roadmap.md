@@ -9,7 +9,7 @@ Three homes, three jobs — don't mix them:
 
 | Home                                                      | Holds                                                             |
 | --------------------------------------------------------- | ----------------------------------------------------------------- |
-| **this file** + [phase 4+ sketch](phases/phase-2-plus.md) | direction and future goals — the "why/what next"                  |
+| **this file** + [phase 6+ sketch](phases/phase-2-plus.md) | direction and future goals — the "why/what next"                  |
 | [`phases/`](phases/README.md)                             | execution plans — ordered, step-by-step, with acceptance criteria |
 | [`notes/`](notes/README.md)                               | generic agent working notes / session handoffs — informal, dated  |
 
@@ -30,17 +30,21 @@ model for "an app is a manifest + a synced workspace, zero platform changes."
 | [1 — MVP](phases/phase-1-mvp.md)                                           | ✅ done                           |
 | [2 — sandboxed application runs](phases/phase-2-sandbox-runs.md)           | ✅ done                           |
 | [3 — one-off applications, safely](phases/phase-3-application-platform.md) | ✅ done (incl. post-review fixes) |
-| [4 — apply-bot enablement](phases/phase-4-apply-bot-enablement.md)         | 📋 planned                        |
-| [5+ — sketch](phases/phase-2-plus.md)                                      | 📋 sketched                       |
+| [4 — apply-bot enablement](phases/phase-4-apply-bot-enablement.md)         | ✅ done                           |
+| [5 — external app DX](phases/phase-5-app-dx.md)                            | ✅ done                           |
+| [6+ — sketch](phases/phase-2-plus.md)                                      | 📋 sketched                       |
 
 ## Next concrete goal — apply-bot as a manifest app
 
 The driving goal behind Phase 2–3 is to run **apply-bot** (a Python job-search /
 cover-letter agent, a sibling repo at `~/src/apply-bot`) on this platform as a
 one-off manifest app — the same shape as `examples/gmail-agent`, no platform
-forks. The platform prerequisites are now planned as
-[Phase 4 — apply-bot enablement](phases/phase-4-apply-bot-enablement.md); the
-remaining blockers:
+forks. The platform prerequisites landed as
+[Phase 4 — apply-bot enablement](phases/phase-4-apply-bot-enablement.md)
+(**delivered**), and [Phase 5 — external app DX](phases/phase-5-app-dx.md)
+makes the whole lifecycle drivable from the apply-bot repo itself (CLI login,
+agent CRUD, workspace push — no AWS credentials). The original blockers, all
+closed:
 
 - **Python runtime in the sandbox.** ✅ The base image is Node
   ([`sandbox-image/Dockerfile`](../packages/infra/sandbox-image/Dockerfile));
@@ -64,13 +68,15 @@ remaining blockers:
 
 ## Backlog (unscheduled; slot into whichever phase touches it first)
 
-Carried from the [phase 5+ sketch](phases/phase-2-plus.md) (plain manifest env,
+Carried from the [phase 6+ sketch](phases/phase-2-plus.md) (plain manifest env,
 the agent-secrets CLI/API, and per-manifest images graduated into
 [Phase 4](phases/phase-4-apply-bot-enablement.md)):
 
 - **Gateway model pricing table** — keep the priced model set current.
 - **Per-manifest cpu/memory sizing** — Phase 4 keeps every task at the base
   size so the single-size cost model holds; daemon-scale apps will want more.
+- **STS-narrowed workspace presigning** — per-request session policy so the
+  presign Lambda's IAM is not bucket-wide.
 
 Deferred from the Phase 3 review (2026-07-08), low severity, documented in the
 [phase 3 doc](phases/phase-3-application-platform.md#post-implementation-review-2026-07-08):
@@ -104,9 +110,12 @@ Deferred from the production-readiness audit (2026-07-18) — **all six closed i
   single `GATEWAY_TIMEOUT_MINUTES` knob.
 
 With these closed, the platform's guarantee surfaces (spend cap, sandbox
-isolation, concurrency, ops resilience) are production-ready; **re-implementing
-apply-bot on the platform is the next step** — [Phase 4](phases/phase-4-apply-bot-enablement.md)
-enablement is already done.
+isolation, concurrency, ops resilience) are production-ready.
+[Phase 4](phases/phase-4-apply-bot-enablement.md) enablement and
+[Phase 5](phases/phase-5-app-dx.md) external-app DX (CLI login/CRUD/workspace,
+installable CLI, scaffold, [app guide](app-development.md)) make the platform
+consumable from separate app repos; **re-implementing apply-bot in its own
+repo on the platform is the next step**.
 
 ## Doc scaffolding (established 2026-07-08)
 

@@ -1,13 +1,23 @@
 import { Command } from 'commander';
+import { agentsCreate } from './commands/agents-create.js';
 import { agentsList } from './commands/agents-list.js';
 import { agentsManifest } from './commands/agents-manifest.js';
+import { agentsRm } from './commands/agents-rm.js';
 import { agentsShow } from './commands/agents-show.js';
+import { agentsUpdate } from './commands/agents-update.js';
 import { doctor } from './commands/doctor.js';
+import { init } from './commands/init.js';
+import { login } from './commands/login.js';
+import { logout } from './commands/logout.js';
 import { logs } from './commands/logs.js';
 import { run } from './commands/run.js';
 import { secretsList } from './commands/secrets-list.js';
 import { secretsRm } from './commands/secrets-rm.js';
 import { secretsSet } from './commands/secrets-set.js';
+import { workspaceLs } from './commands/workspace-ls.js';
+import { workspacePull } from './commands/workspace-pull.js';
+import { workspacePush } from './commands/workspace-push.js';
+import { workspaceRm } from './commands/workspace-rm.js';
 
 function registerSecrets(program: Command): void {
   const secrets = program
@@ -35,8 +45,7 @@ function registerSecrets(program: Command): void {
     });
 }
 
-function registerAgents(program: Command): void {
-  const agents = program.command('agents').description('Agent CRUD over HTTP');
+function registerAgentsRead(agents: Command): void {
   agents
     .command('list')
     .description('List my agents')
@@ -62,12 +71,105 @@ function registerAgents(program: Command): void {
     );
 }
 
+function registerAgentsLifecycle(agents: Command): void {
+  agents
+    .command('create')
+    .description('Create an agent from a CreateAgentInput JSON file (or - for stdin)')
+    .requiredOption('--file <path>', "Path to the agent JSON, or '-' for stdin")
+    .action(async (opts: { file: string }) => {
+      process.stdout.write(`${await agentsCreate({ file: opts.file })}\n`);
+    });
+  agents
+    .command('update <agentId>')
+    .description('Update an agent from an UpdateAgentInput JSON file (or - for stdin)')
+    .requiredOption('--file <path>', "Path to the agent JSON, or '-' for stdin")
+    .action(async (agentId: string, opts: { file: string }) => {
+      process.stdout.write(`${await agentsUpdate(agentId, { file: opts.file })}\n`);
+    });
+  agents
+    .command('rm <agentId>')
+    .description('Delete an agent')
+    .option('--yes', 'Skip the confirmation prompt')
+    .action(async (agentId: string, opts: { yes?: boolean }) => {
+      process.stdout.write(`${await agentsRm(agentId, { yes: opts.yes })}\n`);
+    });
+}
+
+function registerAgents(program: Command): void {
+  const agents = program.command('agents').description('Agent CRUD over HTTP');
+  registerAgentsRead(agents);
+  registerAgentsLifecycle(agents);
+}
+
+function registerWorkspace(program: Command): void {
+  const workspace = program
+    .command('workspace')
+    .description("An agent's durable S3 workspace (synced into /workspace on each run)");
+  workspace
+    .command('ls <agentId>')
+    .description('List files in the workspace')
+    .action(async (agentId: string) => {
+      process.stdout.write(`${await workspaceLs(agentId)}\n`);
+    });
+  workspace
+    .command('push <agentId> <localPath>')
+    .description('Upload a local file or directory into the workspace')
+    .option('--dest <subdir>', 'Workspace-relative destination prefix')
+    .action(async (agentId: string, localPath: string, opts: { dest?: string }) => {
+      process.stdout.write(`${await workspacePush(agentId, localPath, { dest: opts.dest })}\n`);
+    });
+  workspace
+    .command('pull <agentId> [destDir]')
+    .description('Download workspace files into a local directory (default: .)')
+    .option('--prefix <subdir>', 'Only pull entries under this workspace-relative prefix')
+    .action(async (agentId: string, destDir: string | undefined, opts: { prefix?: string }) => {
+      process.stdout.write(`${await workspacePull(agentId, destDir, { prefix: opts.prefix })}\n`);
+    });
+  workspace
+    .command('rm <agentId> <path>')
+    .description('Delete one file from the workspace')
+    .action(async (agentId: string, path: string) => {
+      process.stdout.write(`${await workspaceRm(agentId, path)}\n`);
+    });
+}
+
+function registerAuth(program: Command): void {
+  program
+    .command('login')
+    .description('Sign in and persist non-secret CLI config (~/.config/agent-village/config.json)')
+    .option('--api-url <url>', 'API base URL (persisted; required on first login)')
+    .option('--region <region>', 'AWS region for the Cognito CLI client (persisted)')
+    .option('--client-id <clientId>', 'Cognito CLI app client id (persisted)')
+    .option('--email <email>', 'Sign-in email (otherwise prompted)')
+    .action(
+      async (opts: { apiUrl?: string; region?: string; clientId?: string; email?: string }) => {
+        process.stdout.write(`${await login(opts)}\n`);
+      },
+    );
+
+  program
+    .command('logout')
+    .description('Clear stored CLI credentials')
+    .action(async () => {
+      process.stdout.write(`${await logout()}\n`);
+    });
+}
+
 export function buildCli(): Command {
   const program = new Command();
   program.name('village').description('Agent Village CLI');
 
+  registerAuth(program);
   registerAgents(program);
   registerSecrets(program);
+  registerWorkspace(program);
+
+  program
+    .command('init <dir>')
+    .description('Scaffold a new one-off agent-village app in <dir>')
+    .action(async (dir: string) => {
+      process.stdout.write(`${await init(dir)}\n`);
+    });
 
   program
     .command('run <agentId>')

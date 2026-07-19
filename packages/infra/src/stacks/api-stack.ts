@@ -10,6 +10,7 @@ import { Effect, PolicyStatement, type Role } from 'aws-cdk-lib/aws-iam';
 import { Architecture, type IFunction, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import type { IBucket } from 'aws-cdk-lib/aws-s3';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from '../../config/index.js';
 
@@ -21,6 +22,7 @@ export interface ApiStackProps extends StackProps {
   readonly runnerFunction: IFunction;
   readonly scheduleGroupName: string;
   readonly schedulerInvokeRole: Role;
+  readonly workspaceBucket: IBucket;
 }
 
 const SELF_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -101,6 +103,22 @@ const HANDLERS: HandlerSpec[] = [
     method: HttpMethod.DELETE,
     routePath: '/agents/{id}/secrets/{name}',
     perms: 'write',
+  },
+  // Direct S3 access to an agent's durable workspace prefix (Phase 5 step 01).
+  {
+    name: 'agents-workspace-list',
+    method: HttpMethod.GET,
+    routePath: '/agents/{id}/workspace',
+    perms: 'read',
+  },
+  {
+    name: 'agents-workspace-presign',
+    method: HttpMethod.POST,
+    routePath: '/agents/{id}/workspace/presign',
+    // Only reads the agent record; the S3 GetObject/PutObject/DeleteObject
+    // abilities it needs come from grantWorkspaceExtras below, not from the
+    // agent-secrets Secrets Manager CRUD that 'write' would also grant.
+    perms: 'read',
   },
 ];
 
@@ -197,6 +215,9 @@ export class ApiStack extends Stack {
     if (spec.name === 'agents-secrets-list' || spec.name === 'agents-delete') {
       grantSecretsList(fn);
     }
+    if (spec.name === 'agents-workspace-list' || spec.name === 'agents-workspace-presign') {
+      grantWorkspaceExtras(fn, props, spec);
+    }
   }
 }
 
@@ -277,6 +298,36 @@ function grantRunNowExtras(fn: NodejsFunction, props: ApiStackProps): void {
       ],
     }),
   );
+}
+
+/**
+ * Direct S3 access to an agent's workspace prefix (Phase 5 step 01). Both
+ * handlers get the bucket name; list only needs to enumerate keys (each
+ * request is narrowed to the caller's own prefix by the ownership-checked
+ * service call, not by IAM — ListBucket has no key-prefix condition worth
+ * adding here since the handler itself never returns another agent's keys),
+ * presign needs get/put/delete on individual objects since the presigned URL
+ * itself is the object-level scope handed to the client.
+ */
+function grantWorkspaceExtras(fn: NodejsFunction, props: ApiStackProps, spec: HandlerSpec): void {
+  fn.addEnvironment('AV_WORKSPACE_BUCKET', props.workspaceBucket.bucketName);
+  if (spec.name === 'agents-workspace-list') {
+    fn.addToRolePolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ['s3:ListBucket'],
+        resources: [props.workspaceBucket.bucketArn],
+      }),
+    );
+  } else {
+    fn.addToRolePolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
+        resources: [`${props.workspaceBucket.bucketArn}/*`],
+      }),
+    );
+  }
 }
 
 function toRetention(days: number): RetentionDays {

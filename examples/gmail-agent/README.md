@@ -83,7 +83,10 @@ that works over IMAP/SMTP without OAuth (avoiding the OAuth testing-mode
 
 ### 2. Create the agent
 
-Create an agent as usual (web UI or `POST /agents`). Relevant fields:
+Create an agent in the web UI, or from the CLI:
+`village agents create --file agent.json` (see
+[docs/app-development.md](../../docs/app-development.md) for the full
+lifecycle, including `village login`). Relevant fields:
 
 - `spendLimitUsd` — the hard LLM+compute budget, e.g. `5`. The metering
   gateway starts rejecting calls mid-run when it's exhausted.
@@ -118,19 +121,18 @@ Edit the values in `manifest.json` before attaching it:
 
 ### 4. Seed the workspace
 
-The workspace is the S3 prefix `<ownerSub>/<agentId>/` in the SandboxStack
-workspace bucket (stack output `WorkspaceBucketName`; `ownerSub` is your
-Cognito user sub, shown by `GET /me`). Upload the app into a `gmail-agent/`
-subdirectory:
+The workspace is the agent's durable S3 prefix; the CLI pushes into it over
+presigned URLs (no AWS credentials needed). Upload the app into a
+`gmail-agent/` subdirectory:
 
 ```sh
-BUCKET=$(aws cloudformation describe-stacks --stack-name "AgentVillage-$ENV-Sandbox" \
-  --query "Stacks[0].Outputs[?OutputKey=='WorkspaceBucketName'].OutputValue" --output text)
-
-aws s3 cp examples/gmail-agent/gmail-agent.mjs   "s3://$BUCKET/$OWNER_SUB/$AGENT_ID/gmail-agent/"
-aws s3 cp examples/gmail-agent/package.json      "s3://$BUCKET/$OWNER_SUB/$AGENT_ID/gmail-agent/"
-aws s3 cp examples/gmail-agent/package-lock.json "s3://$BUCKET/$OWNER_SUB/$AGENT_ID/gmail-agent/"
+village workspace push "$AGENT_ID" examples/gmail-agent --dest gmail-agent
+village workspace ls "$AGENT_ID"
 ```
+
+(Without the CLI, the equivalent is `aws s3 cp` into
+`s3://<WorkspaceBucketName>/<ownerSub>/<agentId>/gmail-agent/` — bucket from
+the SandboxStack outputs, `ownerSub` from `GET /me`.)
 
 ### 5. Attach the manifest and run
 
