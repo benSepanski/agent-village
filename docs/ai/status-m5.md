@@ -23,7 +23,14 @@ Milestone M5 delivers acceptance criteria **AC-5.1–5.4** (extensibility) and
   `stripKnownCrossEnvAppliesTo` in `synth-baseline.ts` for the full
   justification. Every other field — every deployed resource property and
   IAM statement — is compared byte-for-byte against a baseline genuinely
-  captured from the pre-refactor tree (commit a73a924).
+  captured from the pre-refactor tree (commit a73a924). Both capture and
+  comparison pin `WebStack` to placeholder mode (`AV_WEB_FORCE_PLACEHOLDER=1`
+  — see `web-stack.ts`) so the snapshot is deterministic regardless of
+  whether `packages/web/dist` happens to be built locally or in CI; an
+  earlier version of this baseline was accidentally captured with `dist`
+  present, which passed only when a developer had already built the web app
+  and failed in CI (which doesn't build web before unit tests) — fixed by
+  pinning the mode on both sides.
 
 - **AC-5.3** — [app-development.md](../app-development.md) documents both
   paths clearly: (a) consume an existing deployment as an app repo, (b)
@@ -96,12 +103,14 @@ Milestone M5 delivers acceptance criteria **AC-5.1–5.4** (extensibility) and
 - `packages/infra/test/config.test.ts` — updated with injection test cases
 - `packages/infra/test/synth-snapshot.test.ts` — new; zero-drift snapshot tests
 - `packages/infra/test/synth-baseline.ts` — new; synth + normalize helper
-- `packages/infra/test/__fixtures__/synth-baseline/dev.json` — new; baseline
+- `packages/infra/test/__fixtures__/synth-baseline/dev.json` — baseline
   captured from the pre-refactor tree (commit a73a924, in-process
-  `new App().synth()`, asset hashes normalized)
-- `packages/infra/test/__fixtures__/synth-baseline/prod.json` — new; baseline
+  `new App().synth()`, asset hashes normalized, WebStack pinned to
+  placeholder mode)
+- `packages/infra/test/__fixtures__/synth-baseline/prod.json` — baseline
   captured from the pre-refactor tree (commit a73a924, in-process
-  `new App().synth()`, asset hashes normalized)
+  `new App().synth()`, asset hashes normalized, WebStack pinned to
+  placeholder mode)
 - `packages/infra/package.json` — `zod` dependency added; `main`/`types`/`exports` added
   (package entrypoint) and a generic `deploy` script (`AV_CDK_ENV`-driven,
   mirroring the pre-existing `synth` script) added during integration so

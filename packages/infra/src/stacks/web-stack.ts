@@ -36,13 +36,23 @@ export interface WebStackProps extends StackProps {
  * pruning the bucket down to the placeholder page. Returns the BucketDeployment
  * sources plus whether the placeholder is being served (surfaced as the
  * WebServingPlaceholder output for the deploy-verify step and the playbook).
+ *
+ * AV_WEB_FORCE_PLACEHOLDER=1 is a test-only escape hatch that pins
+ * placeholder mode regardless of whether packages/web/dist happens to exist
+ * on disk. It exists so the synth-snapshot zero-drift test (test/synth-
+ * snapshot.test.ts) is deterministic in both CI (no web build) and local dev
+ * (web build present) — see test/synth-baseline.ts. It does not weaken the
+ * AV_DEPLOY_WEB=1 production guard below: forcing placeholder mode still
+ * makes distPresent false, so a real deploy that also (incorrectly) set both
+ * vars would still hit the same "must build the SPA first" failure.
  */
 function resolveWebSource(
   stack: Stack,
   webDistPath: string = WEB_DIST,
 ): { sources: ISource[]; isPlaceholder: boolean } {
   const deployWeb = process.env['AV_DEPLOY_WEB'] === '1';
-  const distPresent = existsSync(path.join(webDistPath, 'index.html'));
+  const forcePlaceholder = process.env['AV_WEB_FORCE_PLACEHOLDER'] === '1';
+  const distPresent = !forcePlaceholder && existsSync(path.join(webDistPath, 'index.html'));
 
   if (deployWeb && !distPresent) {
     throw new Error(

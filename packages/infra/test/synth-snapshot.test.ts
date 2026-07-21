@@ -1,5 +1,5 @@
 import { App } from 'aws-cdk-lib';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app-builder.js';
 import { devConfig } from '../config/dev.js';
 import { prodConfig } from '../config/prod.js';
@@ -27,7 +27,30 @@ import {
 // takes well over vitest's 5s default per environment.
 const SYNTH_TIMEOUT_MS = 60_000;
 
+// Pins WebStack to placeholder mode (see web-stack.ts's AV_WEB_FORCE_PLACEHOLDER
+// doc comment) for both baseline capture and this test's synth, regardless of
+// whether packages/web/dist happens to be built on disk. Without this, CI
+// (which runs unit tests before building the web app) synthesizes the
+// placeholder variant while a local dev box that already ran `pnpm build`
+// synthesizes the real-bundle variant, and only one of those matches
+// whichever mode the baseline was captured in — an environment-dependent
+// flake. Pinning both sides to the same mode makes the comparison
+// deterministic everywhere.
 describe('synth-snapshot zero-drift', () => {
+  const originalForcePlaceholder = process.env['AV_WEB_FORCE_PLACEHOLDER'];
+
+  beforeEach(() => {
+    process.env['AV_WEB_FORCE_PLACEHOLDER'] = '1';
+  });
+
+  afterEach(() => {
+    if (originalForcePlaceholder === undefined) {
+      delete process.env['AV_WEB_FORCE_PLACEHOLDER'];
+    } else {
+      process.env['AV_WEB_FORCE_PLACEHOLDER'] = originalForcePlaceholder;
+    }
+  });
+
   it(
     'dev matches the pre-refactor baseline',
     () => {

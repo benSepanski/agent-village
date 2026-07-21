@@ -36,7 +36,17 @@ export function synthNormalizedTemplates(app: App): Record<string, unknown> {
  * wiring moved into buildApp — by constructing the same 7 stacks + cdk-nag
  * suppressions a73a924's bin/app.ts wired inline, then synthesizing
  * in-process via `new App().synth()` and normalizing exactly as
- * synthNormalizedTemplates does above, then committing the result verbatim). */
+ * synthNormalizedTemplates does above, then committing the result verbatim).
+ *
+ * Captured with WebStack pinned to PLACEHOLDER mode (AV_WEB_FORCE_PLACEHOLDER=1
+ * at capture time; a73a924 predates that env var but capture ran with
+ * packages/web/dist absent and AV_DEPLOY_WEB unset, which is the same
+ * placeholder branch it selects). synth-snapshot.test.ts pins the same mode
+ * at comparison time, so the fixture's WebStack fields (WebServingPlaceholder
+ * output, absence of BucketDeployment SourceMarkers, placeholder-index
+ * source) are deterministic regardless of whether packages/web/dist has been
+ * built locally or in CI. See web-stack.ts's AV_WEB_FORCE_PLACEHOLDER doc
+ * comment. */
 export function loadBaseline(name: 'dev' | 'prod'): Record<string, unknown> {
   const url = new URL(`./__fixtures__/synth-baseline/${name}.json`, import.meta.url);
   return JSON.parse(readFileSync(url, 'utf8')) as Record<string, unknown>;

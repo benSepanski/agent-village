@@ -1815,6 +1815,7 @@
             }
           ],
           "SourceObjectKeys": ["<asset-hash>.zip"],
+          "SourceMarkers": [{}],
           "DestinationBucketName": {
             "Ref": "WebBucket12880F5B"
           },
@@ -2024,7 +2025,7 @@
         }
       },
       "WebServingPlaceholder": {
-        "Value": "false"
+        "Value": "true"
       }
     },
     "Parameters": {
