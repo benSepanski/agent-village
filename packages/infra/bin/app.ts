@@ -50,6 +50,7 @@ const monitoring = new MonitoringStack(app, `${config.prefix}-monitoring`, {
   lifecycleFunction: runner.lifecycleFunction,
   gatewayFunction: runner.gatewayFunction,
   sweeperFunction: runner.sweeperFunction,
+  budgetDriftFunction: runner.budgetDriftFunction,
   lifecycleDlq: runner.lifecycleDlq,
   watchdogDlq: runner.watchdogDlq,
 });

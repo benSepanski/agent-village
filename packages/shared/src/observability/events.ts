@@ -75,6 +75,14 @@ export const LOG_EVENTS = [
   'gateway.run.marked_exhausted',
   'gateway.run.mark_failed',
   'gateway.run.usage_record_failed',
+  // Per-user monthly spend controls (M3):
+  'user.budget_updated',
+  'agent.run.budget_rejected',
+  'gateway.run.budget_rejected',
+  'budget.drift.checked',
+  'budget.drift.detected',
+  'budget.drift.completed',
+  'budget.drift.failed',
 ] as const;
 
 export type LogEvent = (typeof LOG_EVENTS)[number];

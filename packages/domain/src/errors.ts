@@ -27,6 +27,44 @@ export class AgentNotFoundError extends Error {
   }
 }
 
+export class UserNotFoundError extends Error {
+  readonly statusCode = 404;
+  readonly details: { cognitoSub: string };
+
+  constructor(cognitoSub: string) {
+    super(`user not found: ${cognitoSub}`);
+    this.name = 'UserNotFoundError';
+    this.details = { cognitoSub };
+  }
+}
+
+export interface UserBudgetDetails {
+  ownerSub: string;
+  /** e.g. "BUDGET#2026-07" */
+  windowKey: string;
+  budgetLimitUsd: number;
+  spentUsd: number;
+  estimateUsd: number;
+}
+
+/**
+ * Distinct from SpendLimitExceededError (the per-agent cap): this fires when
+ * the OWNER's monthly budget window would be exceeded. Same 402 HTTP family
+ * so it flows through the existing billing_error gateway path and the API's
+ * isDomainError path, but a different class/name so callers (and the run's
+ * `error` string / log event) can tell which cap rejected the spend.
+ */
+export class UserBudgetExceededError extends Error {
+  readonly statusCode = 402;
+  readonly details: UserBudgetDetails;
+
+  constructor(details: UserBudgetDetails) {
+    super(`monthly budget exceeded for user ${details.ownerSub} (${details.windowKey})`);
+    this.name = 'UserBudgetExceededError';
+    this.details = details;
+  }
+}
+
 export class RunNotFoundError extends Error {
   readonly statusCode = 404;
   readonly details: { agentId: string; runId: string };

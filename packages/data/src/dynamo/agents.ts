@@ -31,6 +31,13 @@ import {
   userPk,
 } from './keys.js';
 import { isConditionalCheckFailed } from './errors-map.js';
+import {
+  finalizeSpendWithUserBudget,
+  reserveSpendWithUserBudget,
+  type UserBudgetLeg,
+} from './spend-tx.js';
+
+export type { UserBudgetLeg } from './spend-tx.js';
 
 export type AgentPatch = Partial<{
   name: string;
@@ -78,6 +85,11 @@ export async function listMyAgents(cognitoSub: UserId): Promise<Agent[]> {
   );
   return (res.Items ?? []).map((item) => AgentSchema.parse(item));
 }
+
+// Re-exported so `agentRepo.listAllAgents` stays available (extracted to
+// agents-scan.ts to keep this file under the file-size bound — see
+// docs/conventions/file-size-bounds.md).
+export { listAllAgents } from './agents-scan.js';
 
 export async function getAgent(cognitoSub: UserId, agentId: AgentId): Promise<Agent | null> {
   const { tableName } = getConfig();
@@ -190,9 +202,30 @@ interface ReserveSpendInput {
   agentId: AgentId;
   ownerSub: UserId;
   estimateUsd: number;
+  /**
+   * Present only when the owner has a live monthly budget set. When absent,
+   * this takes the legacy single-item path byte-for-byte: no window item is
+   * ever written, no transaction, no extra read cost for budget-less owners.
+   */
+  userBudget?: UserBudgetLeg;
 }
 
+/**
+ * Reserve `estimateUsd` against the agent's cap and, when the owner has a
+ * budget set, against their current-month window in the same atomic
+ * TransactWrite (see spend-tx.ts). The agent-cap condition and error are
+ * unchanged from the pre-M3 single-item path either way.
+ */
 export async function reserveSpend(input: ReserveSpendInput): Promise<void> {
+  if (input.userBudget) {
+    await reserveSpendWithUserBudget({
+      agentId: input.agentId,
+      ownerSub: input.ownerSub,
+      estimateUsd: input.estimateUsd,
+      userBudget: input.userBudget,
+    });
+    return;
+  }
   const { tableName } = getConfig();
   try {
     await getDocumentClient().send(
@@ -223,9 +256,20 @@ interface FinalizeSpendInput {
   agentId: AgentId;
   ownerSub: UserId;
   deltaUsd: number;
+  /** When present, ADD the same delta to this BUDGET# window's spentUsd too. */
+  userWindowKey?: string;
 }
 
 export async function finalizeSpend(input: FinalizeSpendInput): Promise<void> {
+  if (input.userWindowKey) {
+    await finalizeSpendWithUserBudget({
+      agentId: input.agentId,
+      ownerSub: input.ownerSub,
+      deltaUsd: input.deltaUsd,
+      userWindowKey: input.userWindowKey,
+    });
+    return;
+  }
   const { tableName } = getConfig();
   await getDocumentClient().send(
     new UpdateCommand({

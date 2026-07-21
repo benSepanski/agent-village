@@ -1,7 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { user, agentSvc, agentSecretsSvc, runner, workspaceSvc } = vi.hoisted(() => ({
+const { user, budgetSvc, agentSvc, agentSecretsSvc, runner, workspaceSvc } = vi.hoisted(() => ({
   user: { ensureProfile: vi.fn() },
+  budgetSvc: {
+    getBudgetStatus: vi.fn(),
+    updateUserBudget: vi.fn(),
+  },
   agentSvc: {
     listMyAgents: vi.fn(),
     getMyAgent: vi.fn(),
@@ -29,6 +33,7 @@ const { user, agentSvc, agentSecretsSvc, runner, workspaceSvc } = vi.hoisted(() 
 
 vi.mock('@agent-village/services', () => ({
   user,
+  budget: budgetSvc,
   agent: agentSvc,
   agentSecrets: agentSecretsSvc,
   runner,
@@ -37,6 +42,8 @@ vi.mock('@agent-village/services', () => ({
 }));
 
 import { handler as meHandler } from './me.js';
+import { handler as meBudgetHandler } from './me-budget.js';
+import { handler as meBudgetUpdateHandler } from './me-budget-update.js';
 import { handler as listHandler } from './agents-list.js';
 import { handler as createHandler } from './agents-create.js';
 import { handler as getHandler } from './agents-get.js';
@@ -72,6 +79,7 @@ function evt(over: Record<string, unknown> = {}): never {
 
 beforeEach(() => {
   user.ensureProfile.mockReset();
+  Object.values(budgetSvc).forEach((m) => m.mockReset());
   Object.values(agentSvc).forEach((m) => m.mockReset());
   Object.values(agentSecretsSvc).forEach((m) => m.mockReset());
   Object.values(runner).forEach((m) => m.mockReset());
@@ -88,6 +96,76 @@ describe('GET /me', () => {
       email: 'ben@example.com',
       name: 'Ben',
     });
+  });
+});
+
+describe('GET /me/budget', () => {
+  it('returns the owner-scoped budget status', async () => {
+    const status = {
+      month: '2026-07',
+      limitUsd: 50,
+      usedUsd: 12.5,
+      remainingUsd: 37.5,
+      agents: [{ agentId: AGENT_ID, name: 'Daily', spendLimitUsd: 1, spendUsedUsd: 0.2 }],
+    };
+    budgetSvc.getBudgetStatus.mockResolvedValue(status);
+    const res = await meBudgetHandler(evt());
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(budgetSvc.getBudgetStatus).toHaveBeenCalledWith(SUB);
+    expect(JSON.parse((res as { body: string }).body)).toEqual(status);
+  });
+
+  it('returns 404 when the service reports the profile is missing', async () => {
+    budgetSvc.getBudgetStatus.mockRejectedValue(
+      Object.assign(new Error(`user not found: ${SUB}`), { statusCode: 404 }),
+    );
+    const res = await meBudgetHandler(evt());
+    expect(res).toMatchObject({ statusCode: 404 });
+  });
+});
+
+describe('PATCH /me/budget', () => {
+  it('sets the cap and returns the updated profile', async () => {
+    budgetSvc.updateUserBudget.mockResolvedValue({
+      cognitoSub: SUB,
+      email: 'ben@example.com',
+      displayName: 'Ben',
+      userMonthlyBudgetUsd: 25,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    const res = await meBudgetUpdateHandler(
+      evt({ body: JSON.stringify({ userMonthlyBudgetUsd: 25 }) }),
+    );
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(budgetSvc.updateUserBudget).toHaveBeenCalledWith(SUB, { userMonthlyBudgetUsd: 25 });
+    expect(JSON.parse((res as { body: string }).body).userMonthlyBudgetUsd).toBe(25);
+  });
+
+  it('clears the cap with an explicit null', async () => {
+    budgetSvc.updateUserBudget.mockResolvedValue({
+      cognitoSub: SUB,
+      email: 'ben@example.com',
+      displayName: 'Ben',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    const res = await meBudgetUpdateHandler(
+      evt({ body: JSON.stringify({ userMonthlyBudgetUsd: null }) }),
+    );
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(budgetSvc.updateUserBudget).toHaveBeenCalledWith(SUB, { userMonthlyBudgetUsd: null });
+  });
+
+  it('returns 400 on a non-positive budget', async () => {
+    const res = await meBudgetUpdateHandler(
+      evt({ body: JSON.stringify({ userMonthlyBudgetUsd: 0 }) }),
+    );
+    expect(res).toMatchObject({ statusCode: 400 });
+    expect(budgetSvc.updateUserBudget).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 (not 500) on a malformed JSON body', async () => {
+    const res = await meBudgetUpdateHandler(evt({ body: '{"userMonthlyBudgetUsd":' }));
+    expect(res).toMatchObject({ statusCode: 400 });
   });
 });
 

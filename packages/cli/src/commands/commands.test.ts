@@ -10,6 +10,8 @@ import { agentsManifest } from './agents-manifest.js';
 import { agentsRm } from './agents-rm.js';
 import { agentsShow } from './agents-show.js';
 import { agentsUpdate } from './agents-update.js';
+import { budgetSet } from './budget-set.js';
+import { budgetShow } from './budget-show.js';
 import { logs } from './logs.js';
 import { run } from './run.js';
 import { secretsList } from './secrets-list.js';
@@ -491,6 +493,62 @@ describe('agents rm', () => {
     });
     expect(del).toHaveBeenCalledWith(`/agents/${AGENT_ID}`);
     expect(out).toContain('deleted');
+  });
+});
+
+describe('budget show', () => {
+  it('renders the caller budget status and per-agent breakdown', async () => {
+    const get = vi.fn().mockResolvedValue({
+      month: '2026-07',
+      limitUsd: 50,
+      usedUsd: 12.5,
+      remainingUsd: 37.5,
+      agents: [{ agentId: AGENT_ID, name: 'Daily', spendLimitUsd: 1, spendUsedUsd: 0.2 }],
+    });
+    setApiClient(fakeClient({ get }));
+    const out = await budgetShow();
+    expect(get).toHaveBeenCalledWith('/me/budget');
+    expect(out).toContain('$50.00');
+    expect(out).toContain('$12.5000');
+    expect(out).toContain(AGENT_ID);
+  });
+
+  it('renders "(none set)" when the caller has no cap', async () => {
+    const get = vi.fn().mockResolvedValue({
+      month: '2026-07',
+      limitUsd: null,
+      usedUsd: 0,
+      remainingUsd: null,
+      agents: [],
+    });
+    setApiClient(fakeClient({ get }));
+    const out = await budgetShow();
+    expect(out).toContain('(none set)');
+  });
+});
+
+describe('budget set', () => {
+  it('parses the usd argument locally, PATCHes, and prints confirmation', async () => {
+    const patch = vi.fn().mockResolvedValue({ cognitoSub: 'sub', userMonthlyBudgetUsd: 25 });
+    setApiClient(fakeClient({ patch }));
+    const out = await budgetSet('25');
+    expect(patch).toHaveBeenCalledWith('/me/budget', { userMonthlyBudgetUsd: 25 });
+    expect(out).toContain('$25.00');
+    expect(out).toContain('updated');
+  });
+
+  it('fails fast on a non-numeric argument without making an HTTP call', async () => {
+    const patch = vi.fn();
+    setApiClient(fakeClient({ patch }));
+    await expect(budgetSet('not-a-number')).rejects.toThrow(/Invalid input/);
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('fails fast on a non-positive amount without making an HTTP call', async () => {
+    const patch = vi.fn();
+    setApiClient(fakeClient({ patch }));
+    await expect(budgetSet('0')).rejects.toThrow(/Invalid input/);
+    expect(patch).not.toHaveBeenCalled();
   });
 });
 

@@ -5,10 +5,11 @@ import {
   ReplayPromptMismatchError,
   RunNotFoundError,
   SpendLimitExceededError,
+  UserBudgetExceededError,
   hashSystemPrompt,
 } from '@agent-village/domain';
 
-const { agentRepoMock, runRepoMock, secretsMock, sandboxMock } = vi.hoisted(() => ({
+const { agentRepoMock, runRepoMock, secretsMock, sandboxMock, userRepoMock } = vi.hoisted(() => ({
   agentRepoMock: {
     getAgent: vi.fn(),
     getAgentById: vi.fn(),
@@ -26,13 +27,20 @@ const { agentRepoMock, runRepoMock, secretsMock, sandboxMock } = vi.hoisted(() =
   },
   secretsMock: { getAnthropicKey: vi.fn() },
   sandboxMock: { launchSandboxRun: vi.fn() },
+  // No live budget by default (undefined userMonthlyBudgetUsd) — every
+  // existing test in this file stays on the legacy single-item reserve path.
+  userRepoMock: { getProfile: vi.fn() },
 }));
 
 vi.mock('@agent-village/data', () => ({
   agentRepo: agentRepoMock,
   runRepo: runRepoMock,
   secrets: secretsMock,
-  userRepo: {},
+  userRepo: userRepoMock,
+  // Same UTC "BUDGET#YYYY-MM" format as data/dynamo/keys.ts#userBudgetSk —
+  // reimplemented here so the mock doesn't need a partial real import.
+  userBudgetSk: (date: Date) =>
+    `BUDGET#${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`,
 }));
 
 vi.mock('./sandbox.js', () => ({ launchSandboxRun: sandboxMock.launchSandboxRun }));
@@ -78,6 +86,9 @@ beforeEach(() => {
   secretsMock.getAnthropicKey.mockReset();
   anthropicClient.messages.create.mockReset();
   setAnthropicFactory(() => anthropicClient as never);
+  // No live budget by default — resolveUserBudgetLeg returns undefined and
+  // every pre-existing test in this file exercises the legacy single-cap path.
+  userRepoMock.getProfile.mockReset().mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -153,6 +164,82 @@ describe('executeRun (spend rejection)', () => {
     expect(anthropicClient.messages.create).not.toHaveBeenCalled();
     expect(agentRepoMock.finalizeSpend).not.toHaveBeenCalled();
     expect(runRepoMock.append.mock.calls[0]![0].status).toBe('spend_limit_exceeded');
+  });
+});
+
+describe('executeRun (user monthly budget)', () => {
+  it('reserves the dual-cap leg when the owner has a live budget, and stamps budgetWindowKey', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(agentFixture);
+    userRepoMock.getProfile.mockResolvedValue({ cognitoSub: SUB, userMonthlyBudgetUsd: 50 });
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    secretsMock.getAnthropicKey.mockResolvedValue('sk-ant-key');
+    anthropicClient.messages.create.mockResolvedValue(anthropicResponse);
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+    runRepoMock.append.mockResolvedValue(undefined);
+
+    await executeRun({ agentId: AGENT_ID });
+
+    const reserveCall = agentRepoMock.reserveSpend.mock.calls[0]![0];
+    expect(reserveCall.userBudget).toMatchObject({
+      windowKey: expect.stringMatching(/^BUDGET#/),
+      limitUsd: 50,
+    });
+    const persisted = runRepoMock.append.mock.calls[0]![0];
+    expect(persisted.budgetWindowKey).toBe(reserveCall.userBudget.windowKey);
+    const finalizeCall = agentRepoMock.finalizeSpend.mock.calls[0]![0];
+    expect(finalizeCall.userWindowKey).toBe(reserveCall.userBudget.windowKey);
+  });
+
+  it('keeps the legacy single-cap path (no userBudget leg) when the owner has none', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(agentFixture);
+    userRepoMock.getProfile.mockResolvedValue({ cognitoSub: SUB });
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    secretsMock.getAnthropicKey.mockResolvedValue('sk-ant-key');
+    anthropicClient.messages.create.mockResolvedValue(anthropicResponse);
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+    runRepoMock.append.mockResolvedValue(undefined);
+
+    await executeRun({ agentId: AGENT_ID });
+
+    expect(agentRepoMock.reserveSpend.mock.calls[0]![0].userBudget).toBeUndefined();
+    expect(runRepoMock.append.mock.calls[0]![0].budgetWindowKey).toBeNull();
+  });
+
+  it('records spend_limit_exceeded (with the budget log event) when the user budget rejects', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(agentFixture);
+    userRepoMock.getProfile.mockResolvedValue({ cognitoSub: SUB, userMonthlyBudgetUsd: 10 });
+    agentRepoMock.reserveSpend.mockRejectedValue(
+      new UserBudgetExceededError({
+        ownerSub: SUB,
+        windowKey: 'BUDGET#2026-05',
+        budgetLimitUsd: 10,
+        spentUsd: 10,
+        estimateUsd: 0.05,
+      }),
+    );
+    runRepoMock.append.mockResolvedValue(undefined);
+
+    const result = await executeRun({ agentId: AGENT_ID });
+
+    expect(result.status).toBe('spend_limit_exceeded');
+    expect(anthropicClient.messages.create).not.toHaveBeenCalled();
+    expect(runRepoMock.append.mock.calls[0]![0].status).toBe('spend_limit_exceeded');
+    // Rejected outright: neither leg was actually reserved, so no window key.
+    expect(runRepoMock.append.mock.calls[0]![0].budgetWindowKey).toBeNull();
+  });
+
+  it('refunds the user window leg too when the secret fetch throws before finalize', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(agentFixture);
+    userRepoMock.getProfile.mockResolvedValue({ cognitoSub: SUB, userMonthlyBudgetUsd: 50 });
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+    secretsMock.getAnthropicKey.mockRejectedValue(new Error('secrets unavailable'));
+
+    await expect(executeRun({ agentId: AGENT_ID })).rejects.toThrow('secrets unavailable');
+
+    const refundCall = agentRepoMock.finalizeSpend.mock.calls[0]![0];
+    expect(refundCall.deltaUsd).toBeLessThan(0);
+    expect(refundCall.userWindowKey).toMatch(/^BUDGET#/);
   });
 });
 
@@ -347,6 +434,42 @@ describe('executeRun (sandbox)', () => {
     expect(agentRepoMock.acquireActiveRun).not.toHaveBeenCalled();
     expect(sandboxMock.launchSandboxRun).not.toHaveBeenCalled();
     expect(runRepoMock.append.mock.calls[0]![0].kind).toBe('sandbox');
+  });
+
+  it('stamps budgetWindowKey on the sandbox run and refunds BOTH counters on an acquire failure', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(sandboxAgent);
+    userRepoMock.getProfile.mockResolvedValue({ cognitoSub: SUB, userMonthlyBudgetUsd: 50 });
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    agentRepoMock.acquireActiveRun.mockRejectedValue(new AgentRunInProgressError(AGENT_ID));
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+
+    await expect(executeRun({ agentId: AGENT_ID })).rejects.toBeInstanceOf(AgentRunInProgressError);
+
+    // The M2-fixed unconditional guard refund must now refund both legs.
+    const refundCall = agentRepoMock.finalizeSpend.mock.calls[0]![0];
+    expect(refundCall.deltaUsd).toBeLessThan(0);
+    expect(refundCall.userWindowKey).toMatch(/^BUDGET#/);
+  });
+
+  it('records budget_rejected (still spend_limit_exceeded status) when the user budget rejects a sandbox launch', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(sandboxAgent);
+    userRepoMock.getProfile.mockResolvedValue({ cognitoSub: SUB, userMonthlyBudgetUsd: 10 });
+    agentRepoMock.reserveSpend.mockRejectedValue(
+      new UserBudgetExceededError({
+        ownerSub: SUB,
+        windowKey: 'BUDGET#2026-05',
+        budgetLimitUsd: 10,
+        spentUsd: 10,
+        estimateUsd: 0.02,
+      }),
+    );
+    runRepoMock.append.mockResolvedValue(undefined);
+
+    const result = await executeRun({ agentId: AGENT_ID });
+
+    expect(result.status).toBe('spend_limit_exceeded');
+    expect(agentRepoMock.acquireActiveRun).not.toHaveBeenCalled();
+    expect(sandboxMock.launchSandboxRun).not.toHaveBeenCalled();
   });
 });
 

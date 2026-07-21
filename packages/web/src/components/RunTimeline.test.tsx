@@ -26,6 +26,7 @@ const baseRun: Run = {
   exitCode: null,
   gatewayTokenHash: null,
   reservedUsd: null,
+  budgetWindowKey: null,
   events: [
     { event: 'agent.run.started', at: '2026-05-16T12:00:00.000Z' },
     { event: 'agent.run.completed', at: '2026-05-16T12:00:00.800Z' },

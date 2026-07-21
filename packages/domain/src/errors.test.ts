@@ -5,6 +5,8 @@ import {
   InvalidScheduleError,
   SecretPendingDeletionError,
   SpendLimitExceededError,
+  UserBudgetExceededError,
+  UserNotFoundError,
 } from './errors.js';
 
 describe('SpendLimitExceededError', () => {
@@ -50,6 +52,35 @@ describe('SecretPendingDeletionError', () => {
     expect(err.name).toBe('SecretPendingDeletionError');
     expect(err.message).toContain('gmail-app-password');
     expect(err.details).toEqual({ agentId: 'agent-4', secretName: 'gmail-app-password' });
+  });
+});
+
+describe('UserNotFoundError', () => {
+  it('carries a cognitoSub and a 404 status', () => {
+    const err = new UserNotFoundError('cog-sub-5');
+    expect(err.statusCode).toBe(404);
+    expect(err.name).toBe('UserNotFoundError');
+    expect(err.message).toContain('cog-sub-5');
+    expect(err.details.cognitoSub).toBe('cog-sub-5');
+  });
+});
+
+describe('UserBudgetExceededError', () => {
+  it('carries budget details and a 402 status, distinct from SpendLimitExceededError', () => {
+    const err = new UserBudgetExceededError({
+      ownerSub: 'cog-sub-6',
+      windowKey: 'BUDGET#2026-07',
+      budgetLimitUsd: 50,
+      spentUsd: 49.5,
+      estimateUsd: 1,
+    });
+    expect(err).toBeInstanceOf(Error);
+    expect(err.statusCode).toBe(402);
+    expect(err.name).toBe('UserBudgetExceededError');
+    expect(err.message).toContain('cog-sub-6');
+    expect(err.message).toContain('BUDGET#2026-07');
+    expect(err.details.budgetLimitUsd).toBe(50);
+    expect(err).not.toBeInstanceOf(SpendLimitExceededError);
   });
 });
 

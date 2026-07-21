@@ -5,6 +5,8 @@ import { agentsManifest } from './commands/agents-manifest.js';
 import { agentsRm } from './commands/agents-rm.js';
 import { agentsShow } from './commands/agents-show.js';
 import { agentsUpdate } from './commands/agents-update.js';
+import { budgetSet } from './commands/budget-set.js';
+import { budgetShow } from './commands/budget-show.js';
 import { doctor } from './commands/doctor.js';
 import { init } from './commands/init.js';
 import { login } from './commands/login.js';
@@ -101,6 +103,21 @@ function registerAgents(program: Command): void {
   registerAgentsLifecycle(agents);
 }
 
+function registerBudget(program: Command): void {
+  const budget = program
+    .command('budget')
+    .description("Caller's monthly spend budget (GET /me/budget)")
+    .action(async () => {
+      process.stdout.write(`${await budgetShow()}\n`);
+    });
+  budget
+    .command('set <usd>')
+    .description('Set (or change) the monthly budget cap in USD')
+    .action(async (usd: string) => {
+      process.stdout.write(`${await budgetSet(usd)}\n`);
+    });
+}
+
 function registerWorkspace(program: Command): void {
   const workspace = program
     .command('workspace')
@@ -161,6 +178,7 @@ export function buildCli(): Command {
 
   registerAuth(program);
   registerAgents(program);
+  registerBudget(program);
   registerSecrets(program);
   registerWorkspace(program);
 

@@ -73,6 +73,50 @@ function terminalEvents(existing: Run, input: FinalizeSandboxRunInput): RunEvent
  * snapshot cannot: two concurrently redelivered stop events both read it as
  * not-yet-finalized and would double-count the outcome.
  */
+/**
+ * Apply the reconciled delta to both the agent ledger and the run's own
+ * `costUsd` (ADD, not SET, since a straggler gateway reconciliation may still
+ * be appending LLM usage). Failures are logged, never thrown — see
+ * reconcileComputeSpend's doc comment for why that's the safe direction.
+ */
+async function settleReconciledSpend(
+  existing: Run,
+  reservedUsd: number,
+  deltaUsd: number,
+  actualUsd: number,
+): Promise<void> {
+  try {
+    // The run's own persisted window (or undefined if it had none at
+    // reservation time) — never re-derived, so reconciliation always settles
+    // the same window the launch/gateway reservations used.
+    const userWindowKey = existing.budgetWindowKey ?? undefined;
+    await agentRepo.finalizeSpend({
+      agentId: existing.agentId,
+      ownerSub: existing.ownerSub,
+      deltaUsd,
+      ...(userWindowKey !== undefined ? { userWindowKey } : {}),
+    });
+    await runRepo.addRunUsage(existing.agentId, existing.createdAt, existing.id, {
+      costUsd: deltaUsd,
+      tokensIn: 0,
+      tokensOut: 0,
+    });
+    logger.info({
+      event: 'sandbox.run.spend_reconciled',
+      agentId: existing.agentId,
+      runId: existing.id,
+      metric: { 'spend.reserved_usd': reservedUsd, 'spend.actual_usd': actualUsd },
+    });
+  } catch (err) {
+    logger.error({
+      event: 'sandbox.run.reconcile_failed',
+      agentId: existing.agentId,
+      runId: existing.id,
+      err,
+    });
+  }
+}
+
 async function reconcileComputeSpend(existing: Run, durationMs: number): Promise<boolean> {
   // Claim the reservation atomically. A read-then-write marker is not enough:
   // EventBridge stop events are at-least-once and can be processed
@@ -98,34 +142,7 @@ async function reconcileComputeSpend(existing: Run, durationMs: number): Promise
   if (reservedUsd === null) return false; // inline/legacy run, or another settlement won
   const { cpu, memMb } = sandboxTaskSize();
   const actualUsd = actualSandboxCost(durationMs, cpu, memMb);
-  const deltaUsd = actualUsd - reservedUsd;
-  try {
-    await agentRepo.finalizeSpend({
-      agentId: existing.agentId,
-      ownerSub: existing.ownerSub,
-      deltaUsd,
-    });
-    // ADD (not SET): a straggler gateway reconciliation may still be appending
-    // LLM usage onto costUsd, so shift it atomically instead of overwriting.
-    await runRepo.addRunUsage(existing.agentId, existing.createdAt, existing.id, {
-      costUsd: deltaUsd,
-      tokensIn: 0,
-      tokensOut: 0,
-    });
-    logger.info({
-      event: 'sandbox.run.spend_reconciled',
-      agentId: existing.agentId,
-      runId: existing.id,
-      metric: { 'spend.reserved_usd': reservedUsd, 'spend.actual_usd': actualUsd },
-    });
-  } catch (err) {
-    logger.error({
-      event: 'sandbox.run.reconcile_failed',
-      agentId: existing.agentId,
-      runId: existing.id,
-      err,
-    });
-  }
+  await settleReconciledSpend(existing, reservedUsd, actualUsd - reservedUsd, actualUsd);
   return true;
 }
 

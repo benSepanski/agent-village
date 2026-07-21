@@ -92,6 +92,15 @@ export const RunSchema = z
      * an honest empty state for those instead of fabricating events.
      */
     events: z.array(RunEventSchema).default([]),
+    /**
+     * The user monthly-budget window (sk, e.g. "BUDGET#2026-07") this run's
+     * spend was reserved against, or null when the owner had no budget at
+     * reservation time. Deferred settlement (lifecycle/sweeper/onLaunchFailure)
+     * reads THIS — never `new Date()` — so a run reserved in month A settles
+     * against A even if it stops in month B. Defaults null so legacy runs
+     * parse and skip the user leg.
+     */
+    budgetWindowKey: z.string().min(1).nullable().default(null),
     createdAt: z.string().datetime(),
   })
   // Inline runs must keep their Anthropic-specific fields — a sandbox run is the

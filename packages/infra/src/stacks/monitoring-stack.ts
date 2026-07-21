@@ -25,6 +25,8 @@ export interface MonitoringStackProps extends StackProps {
   readonly gatewayFunction: IFunction;
   /** Stuck-run sweeper (Lambda-error alarm). */
   readonly sweeperFunction: IFunction;
+  /** Report-only budget-drift reconciliation job (M3; Lambda-error + EMF alarms). */
+  readonly budgetDriftFunction: IFunction;
   /** DLQ for stop events EventBridge could not deliver to the lifecycle Lambda. */
   readonly lifecycleDlq: IQueue;
   /** DLQ for watchdog StopTask fires that failed at fire time. */
@@ -57,6 +59,7 @@ export class MonitoringStack extends Stack {
     this.buildFunctionAlarms(config, 'gateway', gatewayFunction, action);
     this.buildSpendAlarm(config, action);
     this.buildResilienceAlarms(config, props, action);
+    this.buildBudgetDriftAlarms(config, props.budgetDriftFunction, action);
 
     new CfnOutput(this, 'AlarmTopicArn', { value: this.alarmTopic.topicArn });
   }
@@ -237,6 +240,45 @@ export class MonitoringStack extends Stack {
       }),
       evaluationPeriods: 1,
       threshold: 0,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(action);
+  }
+
+  /**
+   * Report-only drift job (M3): an error alarm on the Lambda itself, plus the
+   * EMF `budget.drift_usd` gauge it emits once per recomputed scope (agent or
+   * user window) each pass — alarm on `Maximum` exceeding the configured
+   * threshold, since any single scope drifting past it is worth a look even
+   * if most scopes are exact.
+   */
+  private buildBudgetDriftAlarms(
+    config: EnvConfig,
+    budgetDriftFunction: IFunction,
+    action: SnsAction,
+  ): void {
+    new Alarm(this, 'BudgetDriftErrorsAlarm', {
+      alarmName: `${config.prefix}-budget-drift-errors`,
+      alarmDescription: 'Budget-drift reconciliation Lambda error invocations',
+      metric: budgetDriftFunction.metricErrors({ period: Duration.hours(1), statistic: 'Sum' }),
+      evaluationPeriods: 1,
+      threshold: 0,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(action);
+
+    new Alarm(this, 'BudgetDriftAlarm', {
+      alarmName: `${config.prefix}-budget-drift`,
+      alarmDescription: `A recomputed spend accumulator drifted more than $${config.budgetDriftThresholdUsd} from its persisted value`,
+      metric: new Metric({
+        namespace: 'AgentVillage',
+        metricName: 'budget.drift_usd',
+        period: Duration.hours(1),
+        statistic: 'Maximum',
+        unit: Unit.NONE,
+      }),
+      evaluationPeriods: 1,
+      threshold: config.budgetDriftThresholdUsd,
       comparisonOperator: ComparisonOperator.GREATER_THAN_THRESHOLD,
       treatMissingData: TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(action);

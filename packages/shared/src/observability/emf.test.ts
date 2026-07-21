@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runOutcomeMetric } from './emf.js';
+import { budgetDriftMetric, runOutcomeMetric } from './emf.js';
 
 interface EmfShape {
   _aws: {
@@ -39,5 +39,22 @@ describe('runOutcomeMetric', () => {
     expect(runOutcomeMetric('ok')).toEqual({});
     expect(runOutcomeMetric('running')).toEqual({});
     expect(runOutcomeMetric('timed_out')).toEqual({});
+  });
+});
+
+describe('budgetDriftMetric', () => {
+  it('reports the absolute drift as a gauge', () => {
+    const payload = budgetDriftMetric(-0.42) as EmfShape;
+    expect(payload['budget.drift_usd']).toBeCloseTo(0.42);
+    const spec = payload._aws.CloudWatchMetrics[0]!;
+    expect(spec.Namespace).toBe('AgentVillage');
+    expect(spec.Dimensions).toEqual([[]]);
+    expect(spec.Metrics).toEqual([{ Name: 'budget.drift_usd', Unit: 'None' }]);
+    expect(payload._aws.Timestamp).toBeTypeOf('number');
+  });
+
+  it('reports zero drift as zero', () => {
+    const payload = budgetDriftMetric(0) as EmfShape;
+    expect(payload['budget.drift_usd']).toBe(0);
   });
 });

@@ -107,3 +107,23 @@ describe('ApiStack workspace routes', () => {
     });
   });
 });
+
+describe('ApiStack budget routes', () => {
+  it('registers GET /me/budget and PATCH /me/budget', () => {
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'GET /me/budget',
+    });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'PATCH /me/budget',
+    });
+  });
+
+  it('bundles both budget Lambdas', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'agent-village-dev-api-me-budget',
+    });
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'agent-village-dev-api-me-budget-update',
+    });
+  });
+});

@@ -1,10 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { agentRepo, runRepo, secrets } from '@agent-village/data';
+import { agentRepo, runRepo, secrets, userBudgetSk, type UserBudgetLeg } from '@agent-village/data';
 import {
   AgentNotFoundError,
   ReplayPromptMismatchError,
   RunNotFoundError,
-  SpendLimitExceededError,
   actualCost,
   estimateCost,
   hashSystemPrompt,
@@ -22,8 +21,10 @@ import {
   type RunStatus,
   type UserId,
 } from '@agent-village/shared';
+import { resolveUserBudgetLeg } from './budget.js';
 import { executeSandboxRun } from './runner-sandbox.js';
 import { logger } from './logger.js';
+import { reserveInlineSpend, refundInlineReservation } from './runner-spend.js';
 import { ulid } from './ulid.js';
 
 export { finalizeSandboxRun } from './sandbox-lifecycle.js';
@@ -131,33 +132,6 @@ async function verifyReplay(ctx: RunContext, agent: Agent): Promise<void> {
   }
 }
 
-async function reserve(ctx: RunContext, agent: Agent, estimateUsd: number): Promise<boolean> {
-  try {
-    await agentRepo.reserveSpend({ agentId: agent.id, ownerSub: agent.ownerSub, estimateUsd });
-    logger.info({
-      event: 'agent.run.spend_reserved',
-      agentId: agent.id,
-      runId: ctx.runId,
-      traceId: ctx.traceId,
-      metric: { 'spend.reserved_usd': estimateUsd },
-    });
-    return true;
-  } catch (err) {
-    if (err instanceof SpendLimitExceededError) {
-      logger.warn({
-        event: 'agent.run.spend_rejected',
-        agentId: agent.id,
-        runId: ctx.runId,
-        traceId: ctx.traceId,
-        // Real EMF datapoint for the spend-rejected alarm (Phase 3 step 07).
-        ...runOutcomeMetric('spend_limit_exceeded'),
-      });
-      return false;
-    }
-    throw err;
-  }
-}
-
 async function callAnthropic(ctx: RunContext, agent: Agent, apiKey: string): Promise<CallResult> {
   logger.info({
     event: 'agent.run.anthropic_call',
@@ -221,7 +195,12 @@ function inlineRunEvents(ctx: RunContext, status: RunStatus, durationMs: number)
   ];
 }
 
-function buildRun(ctx: RunContext, agent: Agent, result: CallResult): Run {
+function buildRun(
+  ctx: RunContext,
+  agent: Agent,
+  result: CallResult,
+  userBudget: UserBudgetLeg | undefined,
+): Run {
   const durationMs = Date.now() - ctx.startedAt;
   return RunSchema.parse({
     id: ctx.runId,
@@ -243,6 +222,7 @@ function buildRun(ctx: RunContext, agent: Agent, result: CallResult): Run {
     dryRun: ctx.dryRun,
     replayOfRunId: ctx.replayOfRunId ?? null,
     events: inlineRunEvents(ctx, result.status, durationMs),
+    budgetWindowKey: userBudget?.windowKey ?? null,
     createdAt: new Date(ctx.startedAt).toISOString(),
   });
 }
@@ -255,49 +235,50 @@ const runLog = (ctx: RunContext): { agentId: AgentId; runId: RunId; traceId: str
 });
 
 async function appendRejected(ctx: RunContext, agent: Agent): Promise<Run> {
-  const run = buildRun(ctx, agent, {
-    status: 'spend_limit_exceeded',
-    output: '',
-    error: 'spend limit exceeded; Anthropic call skipped',
-    tokensIn: 0,
-    tokensOut: 0,
-  });
+  const run = buildRun(
+    ctx,
+    agent,
+    {
+      status: 'spend_limit_exceeded',
+      output: '',
+      error: 'spend limit exceeded; Anthropic call skipped',
+      tokensIn: 0,
+      tokensOut: 0,
+    },
+    // Neither leg was actually reserved, so the run carries no window.
+    undefined,
+  );
   await runRepo.append(run);
   logger.info({ event: 'agent.run.persisted', ...runLog(ctx) });
   return run;
 }
 
-/** Release a reservation that was never finalized (e.g. the call setup threw). */
-async function refundReservation(
-  ctx: RunContext,
-  agent: Agent,
-  estimateUsd: number,
-): Promise<void> {
-  try {
-    await agentRepo.finalizeSpend({
-      agentId: agent.id,
-      ownerSub: agent.ownerSub,
-      deltaUsd: -estimateUsd,
-    });
-    logger.warn({ event: 'agent.run.spend_refunded', ...runLog(ctx) });
-  } catch (refundErr) {
-    logger.error({ event: 'agent.run.spend_refund_failed', ...runLog(ctx), err: refundErr });
-  }
-}
-
 /**
  * Run the Anthropic call, reconcile reserved spend against actual, and persist
  * the run. Any failure before spend is finalized refunds the reservation, so it
- * never leaks permanently into spendUsedUsd.
+ * never leaks permanently into spendUsedUsd. `userBudget` (both legs) is
+ * threaded through so the refund/finalize settle the SAME window the
+ * reservation used.
  */
-async function executeReserved(ctx: RunContext, agent: Agent, estimateUsd: number): Promise<Run> {
+async function executeReserved(
+  ctx: RunContext,
+  agent: Agent,
+  estimateUsd: number,
+  userBudget: UserBudgetLeg | undefined,
+): Promise<Run> {
+  const userWindowKey = userBudget?.windowKey;
   let finalized = false;
   try {
     const apiKey = await secrets.getAnthropicKey(agent.anthropicSecretArn);
     logger.info({ event: 'agent.run.secret_fetched', ...runLog(ctx) });
-    const run = buildRun(ctx, agent, await callAnthropic(ctx, agent, apiKey));
+    const run = buildRun(ctx, agent, await callAnthropic(ctx, agent, apiKey), userBudget);
     const deltaUsd = run.costUsd - estimateUsd;
-    await agentRepo.finalizeSpend({ agentId: agent.id, ownerSub: agent.ownerSub, deltaUsd });
+    await agentRepo.finalizeSpend({
+      agentId: agent.id,
+      ownerSub: agent.ownerSub,
+      deltaUsd,
+      ...(userWindowKey !== undefined ? { userWindowKey } : {}),
+    });
     finalized = true;
     logger.info({
       event: 'agent.run.spend_finalized',
@@ -308,7 +289,7 @@ async function executeReserved(ctx: RunContext, agent: Agent, estimateUsd: numbe
     logger.info({ event: 'agent.run.persisted', ...runLog(ctx) });
     return run;
   } catch (err) {
-    if (!finalized) await refundReservation(ctx, agent, estimateUsd);
+    if (!finalized) await refundInlineReservation(runLog(ctx), agent, estimateUsd, userWindowKey);
     throw err;
   }
 }
@@ -333,11 +314,13 @@ export async function executeRun(input: ExecuteRunInput): Promise<ExecuteRunResu
     ctx.maxTokens,
     agent.systemPrompt.length + USER_MESSAGE.length,
   );
-  if (!(await reserve(ctx, agent, estimateUsd))) {
+  const now = new Date(ctx.startedAt);
+  const userBudget = await resolveUserBudgetLeg(agent.ownerSub, userBudgetSk(now), now);
+  if (!(await reserveInlineSpend(runLog(ctx), agent, estimateUsd, userBudget))) {
     const rejected = await appendRejected(ctx, agent);
     return { runId: rejected.id, status: rejected.status };
   }
-  const run = await executeReserved(ctx, agent, estimateUsd);
+  const run = await executeReserved(ctx, agent, estimateUsd, userBudget);
   logger.info({
     event: 'agent.run.completed',
     ...runLog(ctx),

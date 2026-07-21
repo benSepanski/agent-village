@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { UserNotFoundError } from '@agent-village/domain';
 import { createDynamoMock, type DynamoMock } from '../../test-utils/dynamodb-mock.js';
 import { resetDocumentClient } from './client.js';
-import { ensureProfile, getProfile } from './users.js';
+import { ensureProfile, getProfile, listAllProfiles, updateProfile } from './users.js';
 
 let mock: DynamoMock;
 
@@ -76,5 +77,61 @@ describe('ensureProfile', () => {
     expect(input.TableName).toBe(TEST_TABLE);
     expect(input.Item?.['pk']).toBe(`USER#${SUB}`);
     expect(input.Item?.['sk']).toBe('PROFILE');
+  });
+});
+
+const profileItem = {
+  cognitoSub: SUB,
+  email: 'ben@example.com',
+  displayName: 'Ben',
+  createdAt: '2026-05-16T12:00:00.000Z',
+};
+
+describe('updateProfile', () => {
+  it('SETs userMonthlyBudgetUsd when given a number', async () => {
+    mock.on(UpdateCommand).resolves({ Attributes: { ...profileItem, userMonthlyBudgetUsd: 50 } });
+    const updated = await updateProfile({ cognitoSub: SUB, userMonthlyBudgetUsd: 50 });
+    expect(updated.userMonthlyBudgetUsd).toBe(50);
+    const call = mock.commandCalls(UpdateCommand)[0]!;
+    expect(call.args[0].input.UpdateExpression).toBe('SET userMonthlyBudgetUsd = :budget');
+    expect(call.args[0].input.ExpressionAttributeValues?.[':budget']).toBe(50);
+  });
+
+  it('REMOVEs userMonthlyBudgetUsd when given null (clears the cap)', async () => {
+    mock.on(UpdateCommand).resolves({ Attributes: profileItem });
+    const updated = await updateProfile({ cognitoSub: SUB, userMonthlyBudgetUsd: null });
+    expect(updated.userMonthlyBudgetUsd).toBeUndefined();
+    const call = mock.commandCalls(UpdateCommand)[0]!;
+    expect(call.args[0].input.UpdateExpression).toBe('REMOVE userMonthlyBudgetUsd');
+    expect(call.args[0].input.ExpressionAttributeValues).toBeUndefined();
+  });
+
+  it('throws UserNotFoundError when the profile does not exist', async () => {
+    mock
+      .on(UpdateCommand)
+      .rejects(Object.assign(new Error('missing'), { name: 'ConditionalCheckFailedException' }));
+    await expect(
+      updateProfile({ cognitoSub: SUB, userMonthlyBudgetUsd: 50 }),
+    ).rejects.toBeInstanceOf(UserNotFoundError);
+  });
+});
+
+describe('listAllProfiles', () => {
+  it('scans for PROFILE items and parses each page', async () => {
+    mock.on(ScanCommand).resolves({ Items: [profileItem] });
+    const profiles = await listAllProfiles();
+    expect(profiles).toHaveLength(1);
+    expect(profiles[0]?.cognitoSub).toBe(SUB);
+    const call = mock.commandCalls(ScanCommand)[0]!;
+    expect(call.args[0].input.ExpressionAttributeValues?.[':sk']).toBe('PROFILE');
+  });
+
+  it('paginates across LastEvaluatedKey', async () => {
+    mock
+      .on(ScanCommand)
+      .resolvesOnce({ Items: [profileItem], LastEvaluatedKey: { pk: 'x', sk: 'y' } })
+      .resolvesOnce({ Items: [profileItem] });
+    const profiles = await listAllProfiles();
+    expect(profiles).toHaveLength(2);
   });
 });

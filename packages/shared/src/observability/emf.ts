@@ -52,3 +52,27 @@ export function runOutcomeMetric(status: RunStatus): Record<string, unknown> {
     [name]: 1,
   };
 }
+
+/**
+ * EMF gauge for one recomputed counter's absolute drift between a persisted
+ * accumulator (agent.spendUsedUsd or a BUDGET# window's spentUsd) and the
+ * value recomputed from run records. Report-only for 1.0 — the drift job
+ * never writes corrections, it only alarms on `Maximum` exceeding a
+ * configured threshold.
+ */
+export function budgetDriftMetric(driftUsd: number): Record<string, unknown> {
+  return {
+    _aws: {
+      Timestamp: Date.now(),
+      CloudWatchMetrics: [
+        {
+          Namespace: EMF_NAMESPACE,
+          // No dimensions: aggregate across all scopes; alarm uses Maximum.
+          Dimensions: [[]],
+          Metrics: [{ Name: 'budget.drift_usd', Unit: 'None' }],
+        },
+      ],
+    },
+    'budget.drift_usd': Math.abs(driftUsd),
+  };
+}
