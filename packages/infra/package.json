@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "@agent-village/shared": "workspace:*",
-    "aws-cdk-lib": "^2.175.0",
+    "aws-cdk-lib": "^2.260.0",
     "cdk-nag": "^2.34.0",
     "constructs": "^10.4.0",
     "zod": "^3.24.1"
