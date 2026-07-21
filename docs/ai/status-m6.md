@@ -35,10 +35,13 @@ start doc-following (AC-5.5) is byte-for-byte accurate through first AWS contact
 
 **Bad — real defects filed:**
 
-- **Finding E (HIGH):** the SPA has **no mutation error handling anywhere** — a
-  spend/budget 402 rejection is silently swallowed; the user sees nothing. Fails
-  the binding "walls must be transparent" bar. Backend is correct; frontend never
-  renders it.
+- **Finding E (MED — corrected from HIGH by the skeptic pass):** `RunNowSection`
+  and the budget-edit mutation surface only `onSuccess` and never render a
+  spend/budget 402 rejection — on exactly the two flows a spend-limit victim hits.
+  This is a **per-flow omission**, not "no error handling anywhere": the SPA
+  already renders mutation errors inline on the create-agent route
+  (`agents.new.tsx:26`) and elsewhere. Backend is correct; those two flows just
+  don't adopt the existing idiom. Worth a pre-M7 fix.
 - **Finding C (MED):** budget/limit schemas accept `Infinity` (round-trips to
   `null`, breaks DynamoDB marshalling); no upper bound.
 - **Finding F (MED):** zero E2E coverage of the spend-transparency UI despite
@@ -50,11 +53,26 @@ start doc-following (AC-5.5) is byte-for-byte accurate through first AWS contact
 ## Verdict
 
 **ready-for-dev-deploy** — nothing found blocks standing up the M7 dev
-environment, and that deploy is the only surface where the 8 NEEDS-LIVE criteria
+environment, and that deploy is the only surface where the 7 NEEDS-LIVE criteria
 can be verified. **Caveat:** Finding E should be fixed before 1.0 signoff (ideally
 pre-M7), or the live dogfood will simply re-flag it.
 
-Tally: 14 PASS · 7 PARTIAL · 2 FAIL · 8 NEEDS-LIVE.
+Tally: 19 PASS · 9 PARTIAL · 2 FAIL · 7 NEEDS-LIVE (37 ACs). (The initial commit
+said "14 · 7 · 2 · 8 (31)" — a mechanical miscount the evidence-skeptic pass
+corrected against the scorecard; no scorecard row changed.)
+
+## Process note — evidence-skeptic pass ran after the initial commit
+
+This status doc and [`1.0-verdict.md`](1.0-verdict.md) were **first committed
+without** the evidence-skeptic pass: that pass died on a session limit. It was
+re-run afterward and both docs were revised in place to reflect it. The skeptic
+re-executed 18 claims against the repo (all matched), corrected the tally
+arithmetic above, downgraded Finding E (HIGH → MED, it is a two-flow omission not
+an architecture-wide gap), flagged AC-1.1's traceId-propagation integration
+assertion as unbacked, and confirmed the direction (`ready-for-dev-deploy`) and
+the NEEDS-LIVE coverage holes. Full method + findings are in `1.0-verdict.md`'s
+"Evidence-skeptic pass" section. Recording the sequence here because honesty about
+process is part of how this repo works.
 
 ## Evidence & full verdict
 

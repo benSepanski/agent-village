@@ -49,14 +49,18 @@ non-empty static credentials).
    ```bash
    aws --endpoint-url=http://127.0.0.1:8000 dynamodb list-tables
    ```
-2. **Look up runs for a known agent** (by `pk`):
+2. **Look up runs for a known agent** (by `pk`) — _documented procedure, **not
+   exercisable this session**: with `Count: 0` there was no `agentId` to bind, so
+   this is a parameterized template, not a command that ran:_
    ```bash
    aws --endpoint-url=http://127.0.0.1:8000 dynamodb query \
      --table-name agent-village-local \
      --key-condition-expression "pk = :pk AND begins_with(sk, :prefix)" \
      --expression-attribute-values '{":pk":{"S":"AGENT#<agentId>"},":prefix":{"S":"RUN#"}}'
    ```
-3. **Look up runs for a known owner** (by `gsi1pk`, the "who did what" index):
+3. **Look up runs for a known owner** (by `gsi1pk`, the "who did what" index) —
+   _same status: documented procedure, **not exercisable this session** (no
+   `cognitoSub` to bind against an empty table):_
    ```bash
    aws --endpoint-url=http://127.0.0.1:8000 dynamodb query \
      --table-name agent-village-local --index-name gsi1 \
