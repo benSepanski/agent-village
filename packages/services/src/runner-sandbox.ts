@@ -1,9 +1,5 @@
 import { agentRepo, runRepo } from '@agent-village/data';
-import {
-  AgentRunInProgressError,
-  SpendLimitExceededError,
-  estimateSandboxCost,
-} from '@agent-village/domain';
+import { SpendLimitExceededError, estimateSandboxCost } from '@agent-village/domain';
 import {
   RunSchema,
   runOutcomeMetric,
@@ -136,7 +132,20 @@ async function appendRejected(ctx: SandboxRunContext, agent: Agent): Promise<Run
   return run;
 }
 
-/** Claim the run slot; refund the reservation and rethrow if one is already in flight. */
+/**
+ * Claim the run slot; refund the reservation and rethrow on ANY acquire
+ * failure — not just the expected AgentRunInProgressError (one already in
+ * flight). A DynamoDB throttle or other transient error from
+ * acquireActiveRun means the launch never happens either, so leaving the
+ * reservation in place would leak the worst-case estimate against
+ * spendLimitUsd forever, just like the in-flight case.
+ *
+ * Safe from double-refund: no Run record exists yet at this point —
+ * launchAndRecord only calls runRepo.append after acquireGuard returns — so
+ * the claimRunReservation-gated settlement paths (onLaunchFailure below, and
+ * the lifecycle handler's reconcile) can never also touch this reservation;
+ * both only ever act on an existing Run row keyed by runId/createdAt.
+ */
 async function acquireGuard(
   ctx: SandboxRunContext,
   agent: Agent,
@@ -149,7 +158,7 @@ async function acquireGuard(
       runId: ctx.runId,
     });
   } catch (err) {
-    if (err instanceof AgentRunInProgressError) await refund(ctx, agent, estimateUsd);
+    await refund(ctx, agent, estimateUsd);
     throw err;
   }
 }

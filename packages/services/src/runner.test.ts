@@ -265,6 +265,24 @@ describe('executeRun (sandbox)', () => {
     await expect(executeRun({ agentId: AGENT_ID })).rejects.toBeInstanceOf(AgentRunInProgressError);
     expect(sandboxMock.launchSandboxRun).not.toHaveBeenCalled();
     expect(runRepoMock.append).not.toHaveBeenCalled();
+    expect(agentRepoMock.finalizeSpend).toHaveBeenCalledTimes(1);
+    expect(agentRepoMock.finalizeSpend.mock.calls[0]![0].deltaUsd).toBeLessThan(0);
+  });
+
+  it('refunds the reservation exactly once when acquireActiveRun fails for a non-conflict reason', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(sandboxAgent);
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    agentRepoMock.acquireActiveRun.mockRejectedValue(new Error('DynamoDB throttled'));
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+
+    // The failure is not AgentRunInProgressError — DynamoDB throttling and
+    // similar transient errors from acquireActiveRun rethrow as-is — but the
+    // reservation must still be refunded, exactly once, since the launch
+    // never happens.
+    await expect(executeRun({ agentId: AGENT_ID })).rejects.toThrow('DynamoDB throttled');
+    expect(sandboxMock.launchSandboxRun).not.toHaveBeenCalled();
+    expect(runRepoMock.append).not.toHaveBeenCalled();
+    expect(agentRepoMock.finalizeSpend).toHaveBeenCalledTimes(1);
     expect(agentRepoMock.finalizeSpend.mock.calls[0]![0].deltaUsd).toBeLessThan(0);
   });
 

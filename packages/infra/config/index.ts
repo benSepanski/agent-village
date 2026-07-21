@@ -16,6 +16,8 @@ export function loadEnvConfig(envName: string | undefined): EnvConfig {
     );
   }
   const base = CONFIGS[envName];
-  const account = process.env['CDK_DEFAULT_ACCOUNT'];
+  // A config-pinned account wins; CDK_DEFAULT_ACCOUNT (whoever is deploying)
+  // is only a fallback — otherwise pinning would never reject mismatched creds.
+  const account = base.account ?? process.env['CDK_DEFAULT_ACCOUNT'];
   return account ? { ...base, account } : base;
 }

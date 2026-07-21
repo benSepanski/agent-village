@@ -125,6 +125,10 @@ jobs:
           aws-region: us-east-1
 
       - name: CDK deploy
+        # AV_PROD_ACCOUNT_ID (repo variable) pins the prod account — CDK refuses
+        # to deploy if the assumed role belongs to a different account.
+        env:
+          AV_PROD_ACCOUNT_ID: ${{ vars.AV_PROD_ACCOUNT_ID }}
         run: pnpm --filter @agent-village/infra deploy:prod -- --require-approval never
 
       - name: Log in to ECR
