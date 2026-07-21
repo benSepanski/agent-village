@@ -19,6 +19,8 @@ export interface MockApiState {
   runsByAgent: Map<string, string[]>;
   ownerSub: string;
   nextId: () => string;
+  /** Account-wide monthly cap (GET/PATCH /me/budget). `null` = no cap set. */
+  budgetLimitUsd: number | null;
 }
 
 const CROCKFORD_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -48,7 +50,20 @@ export function createMockApiState(ownerSub = 'e2e-user'): MockApiState {
     runsByAgent: new Map(),
     ownerSub,
     nextId: makeIdGenerator(),
+    budgetLimitUsd: null,
   };
+}
+
+/** Account-wide current-month accumulator: the sum of every recorded run's cost. */
+export function budgetUsedUsd(state: MockApiState): number {
+  let total = 0;
+  for (const run of state.runs.values()) total += run.costUsd;
+  return total;
+}
+
+/** Applies PATCH /me/budget: a number sets the cap, `null` clears it. */
+export function updateUserBudget(state: MockApiState, userMonthlyBudgetUsd: number | null): void {
+  state.budgetLimitUsd = userMonthlyBudgetUsd;
 }
 
 /** Deterministic stand-in for the real server's system-prompt hash. */
