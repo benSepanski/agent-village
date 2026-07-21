@@ -19,6 +19,12 @@ export const LOG_EVENTS = [
   'agent.run.config_loaded',
   'agent.run.spend_reserved',
   'agent.run.spend_rejected',
+  // A reservation made via spend_reserved is released because the run never
+  // reached finalize (secret fetch threw, the one-run-per-agent slot could
+  // not be acquired, or the sandbox launch failed). spend_refund_failed means
+  // the refund write itself errored, so the reservation leaked as drift.
+  'agent.run.spend_refunded',
+  'agent.run.spend_refund_failed',
   'agent.run.secret_fetched',
   'agent.run.anthropic_call',
   'agent.run.anthropic_response',

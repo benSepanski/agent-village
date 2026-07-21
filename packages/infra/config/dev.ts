@@ -12,4 +12,6 @@ export const devConfig: EnvConfig = {
   sandboxTaskMemoryMb: 512,
   monthlyBudgetUsd: 5,
   alarmEmail: 'ben.sepanski@gmail.com',
+  // Add the deployed dev CloudFront URL here after the first deploy.
+  oauthCallbackUrls: ['http://localhost:5173'],
 };
