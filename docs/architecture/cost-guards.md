@@ -50,8 +50,10 @@ bills directly, not through AWS. It is capped in code:
 
 See [spend-reservation](../data-model/spend-reservation.md) for the
 exact pattern. A `runs.spend_limit_exceeded` CloudWatch alarm is
-defined for this event, but is currently inert — see the metrics gap
-in [observability](observability.md#metrics).
+defined for this event and fires from the EMF metric (`runOutcomeMetric`)
+emitted at reservation-rejection time in
+[`emf.ts`](../../packages/shared/src/observability/emf.ts) and consumed by
+[`MonitoringStack.buildSpendAlarm`](../../packages/infra/src/stacks/monitoring-stack.ts).
 
 ## What costs you might still see — and how to cut them
 
