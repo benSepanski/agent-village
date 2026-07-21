@@ -60,3 +60,13 @@ jobs:
 
       - name: Dependency graph (structural)
         run: pnpm deps:check
+
+      # Mocked-auth E2E: no deployed Cognito, no secrets. The Playwright
+      # webServer starts the vite dev server itself; smoke + mvp run in mock
+      # auth mode (see packages/web/e2e/README.md), phase3-sandbox skips
+      # itself (opt-in via E2E_AWS).
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E (mocked auth)
+        run: pnpm e2e

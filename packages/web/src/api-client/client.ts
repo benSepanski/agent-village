@@ -1,4 +1,4 @@
-import { fetchAuthSession } from 'aws-amplify/auth';
+import { fetchAuthSession } from '../auth/auth-client.js';
 import { apiBaseUrl } from '../auth/amplify-config.js';
 
 async function authHeader(): Promise<Record<string, string>> {

@@ -6,7 +6,7 @@ const { getCurrentUserMock, signOutMock } = vi.hoisted(() => ({
   signOutMock: vi.fn(),
 }));
 
-vi.mock('aws-amplify/auth', () => ({
+vi.mock('./auth-client.js', () => ({
   getCurrentUser: getCurrentUserMock,
   fetchAuthSession: vi.fn(),
   signInWithRedirect: vi.fn(),

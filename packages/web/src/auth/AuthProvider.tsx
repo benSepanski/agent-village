@@ -4,7 +4,7 @@ import {
   getCurrentUser,
   signInWithRedirect,
   signOut as amplifySignOut,
-} from 'aws-amplify/auth';
+} from './auth-client.js';
 
 export interface AuthUser {
   userId: string;
@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    await signInWithRedirect({ provider: 'Google' });
+    await signInWithRedirect();
   }, []);
 
   const signOut = useCallback(async () => {

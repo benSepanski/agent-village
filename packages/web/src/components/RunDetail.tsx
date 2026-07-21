@@ -19,6 +19,33 @@ function SandboxMeta({ run }: { run: Run }) {
   );
 }
 
+function TraceMeta({ run, cloudWatchLink }: RunDetailProps) {
+  return (
+    <>
+      <dt>Trace</dt>
+      <dd>
+        <code>{run.traceId}</code>
+        {cloudWatchLink ? (
+          <>
+            {' '}
+            <a href={cloudWatchLink} target="_blank" rel="noreferrer">
+              CloudWatch Logs Insights →
+            </a>
+          </>
+        ) : null}
+      </dd>
+      {run.replayOfRunId ? (
+        <>
+          <dt>Replayed from</dt>
+          <dd>
+            <code>{run.replayOfRunId}</code>
+          </dd>
+        </>
+      ) : null}
+    </>
+  );
+}
+
 function RunMeta({ run, cloudWatchLink }: RunDetailProps) {
   const isSandbox = run.kind === 'sandbox';
   return (
@@ -47,18 +74,7 @@ function RunMeta({ run, cloudWatchLink }: RunDetailProps) {
           </dd>
         </>
       )}
-      <dt>Trace</dt>
-      <dd>
-        <code>{run.traceId}</code>
-        {cloudWatchLink ? (
-          <>
-            {' '}
-            <a href={cloudWatchLink} target="_blank" rel="noreferrer">
-              CloudWatch Logs Insights →
-            </a>
-          </>
-        ) : null}
-      </dd>
+      <TraceMeta run={run} {...(cloudWatchLink ? { cloudWatchLink } : {})} />
     </dl>
   );
 }
