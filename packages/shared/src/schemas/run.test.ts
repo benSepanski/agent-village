@@ -116,6 +116,21 @@ describe('RunSchema (sandbox kind)', () => {
   });
 });
 
+describe('RunSchema (budgetWindowKey)', () => {
+  it('defaults budgetWindowKey to null for legacy runs', () => {
+    expect(RunSchema.parse(validRun).budgetWindowKey).toBeNull();
+  });
+
+  it('parses a run reserved against a user budget window', () => {
+    const parsed = RunSchema.parse({ ...validRun, budgetWindowKey: 'BUDGET#2026-07' });
+    expect(parsed.budgetWindowKey).toBe('BUDGET#2026-07');
+  });
+
+  it('rejects an empty-string budgetWindowKey', () => {
+    expect(() => RunSchema.parse({ ...validRun, budgetWindowKey: '' })).toThrow();
+  });
+});
+
 describe('RunSchema (events)', () => {
   it('defaults events to [] for legacy runs', () => {
     expect(RunSchema.parse(validRun).events).toEqual([]);

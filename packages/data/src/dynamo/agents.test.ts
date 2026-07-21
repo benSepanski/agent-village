@@ -4,6 +4,8 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  ScanCommand,
+  TransactWriteCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import {
@@ -20,6 +22,7 @@ import {
   finalizeSpend,
   getAgent,
   getAgentById,
+  listAllAgents,
   listMyAgents,
   releaseActiveRun,
   reserveSpend,
@@ -192,6 +195,63 @@ describe('finalizeSpend', () => {
     const call = mock.commandCalls(UpdateCommand)[0]!;
     expect(call.args[0].input.ExpressionAttributeValues?.[':delta']).toBe(-0.02);
     expect(call.args[0].input.ConditionExpression).toBeUndefined();
+  });
+
+  it('does NOT write a window item when userWindowKey is absent (compat)', async () => {
+    mock.on(UpdateCommand).resolves({});
+    await finalizeSpend({ agentId: AGENT_ID, ownerSub: SUB, deltaUsd: -0.02 });
+    expect(mock.commandCalls(TransactWriteCommand)).toHaveLength(0);
+  });
+});
+
+describe('reserveSpend with a user budget', () => {
+  const userBudget = { windowKey: 'BUDGET#2026-07', limitUsd: 50, now: '2026-07-16T12:00:00.000Z' };
+
+  it('delegates to a TransactWriteCommand instead of the legacy single-item UpdateCommand', async () => {
+    mock.on(TransactWriteCommand).resolves({});
+    await reserveSpend({ agentId: AGENT_ID, ownerSub: SUB, estimateUsd: 0.05, userBudget });
+    expect(mock.commandCalls(TransactWriteCommand)).toHaveLength(1);
+    expect(mock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+});
+
+describe('finalizeSpend with a user window key', () => {
+  it('delegates to a TransactWriteCommand instead of the legacy single-item UpdateCommand', async () => {
+    mock.on(TransactWriteCommand).resolves({});
+    await finalizeSpend({
+      agentId: AGENT_ID,
+      ownerSub: SUB,
+      deltaUsd: 0.5,
+      userWindowKey: 'BUDGET#2026-07',
+    });
+    expect(mock.commandCalls(TransactWriteCommand)).toHaveLength(1);
+    expect(mock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+});
+
+describe('listAllAgents', () => {
+  it('scans for AGENT# items and parses each page', async () => {
+    mock.on(ScanCommand).resolves({ Items: [agentItem] });
+    const agents = await listAllAgents();
+    expect(agents).toHaveLength(1);
+    expect(agents[0]?.id).toBe(AGENT_ID);
+    const call = mock.commandCalls(ScanCommand)[0]!;
+    expect(call.args[0].input.ExpressionAttributeValues?.[':skPrefix']).toBe('AGENT#');
+  });
+
+  it('paginates across LastEvaluatedKey', async () => {
+    mock
+      .on(ScanCommand)
+      .resolvesOnce({ Items: [agentItem], LastEvaluatedKey: { pk: 'x', sk: 'y' } })
+      .resolvesOnce({ Items: [agentItem] });
+    const agents = await listAllAgents();
+    expect(agents).toHaveLength(2);
+    expect(mock.commandCalls(ScanCommand)).toHaveLength(2);
+  });
+
+  it('returns an empty array when there are no agents', async () => {
+    mock.on(ScanCommand).resolves({});
+    expect(await listAllAgents()).toEqual([]);
   });
 });
 

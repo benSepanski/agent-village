@@ -43,6 +43,11 @@ const state = vi.hoisted(() => ({
   //    concurrent stop-event reconcile mid-onLaunchFailure.
   failTaskArnPatch: false,
   patchHook: null as null | ((run: Record<string, unknown>) => void),
+  // Every userBudget/userWindowKey SERVICES actually passed to the data layer
+  // this test run — asserted against to confirm the dual-cap wiring never
+  // fabricates a leg for an owner with no live budget (these acceptance
+  // scenarios never set one).
+  budgetCalls: [] as Array<unknown>,
 }));
 
 vi.mock('@agent-village/data', async () => {
@@ -55,7 +60,8 @@ vi.mock('@agent-village/data', async () => {
   const agentRepo = {
     getAgentById: () => Promise.resolve(state.agent),
     // Conditional ADD, exactly like agents.ts: spendUsedUsd + estimate <= limit.
-    reserveSpend: (input: { agentId: string; estimateUsd: number }) => {
+    reserveSpend: (input: { agentId: string; estimateUsd: number; userBudget?: unknown }) => {
+      state.budgetCalls.push(input.userBudget);
       const { ledger } = state;
       if (ledger.spendUsedUsd + input.estimateUsd > ledger.spendLimitUsd) {
         return Promise.reject(
@@ -70,7 +76,8 @@ vi.mock('@agent-village/data', async () => {
       ledger.spendUsedUsd += input.estimateUsd;
       return Promise.resolve();
     },
-    finalizeSpend: (input: { deltaUsd: number }) => {
+    finalizeSpend: (input: { deltaUsd: number; userWindowKey?: unknown }) => {
+      state.budgetCalls.push(input.userWindowKey);
       state.ledger.spendUsedUsd += input.deltaUsd;
       return Promise.resolve();
     },
@@ -142,7 +149,11 @@ vi.mock('@agent-village/data', async () => {
     runRepo,
     secrets: { getAnthropicKey: () => Promise.resolve('sk-ant-platform-key') },
     grantSecrets: {},
-    userRepo: {},
+    // No owner-level budget in these acceptance scenarios — every existing
+    // assertion here exercises the agent-cap-only path unchanged.
+    userRepo: { getProfile: () => Promise.resolve(null) },
+    userBudgetSk: (d: Date) =>
+      `BUDGET#${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`,
   };
 });
 
@@ -243,6 +254,7 @@ beforeEach(() => {
   state.agent = agent;
   state.failTaskArnPatch = false;
   state.patchHook = null;
+  state.budgetCalls = [];
   setEcsClient({ send: ecsSend } as never);
   setStsClient({ send: stsSend } as never);
   setSchedulerClient({ send: schedulerSend } as never);
@@ -400,6 +412,12 @@ describe('acceptance: forced spend breach mid-run', () => {
     // never be spent by the dead run's token.
     expect(state.ledger.spendUsedUsd).toBeLessThan(state.ledger.spendLimitUsd);
     expect((await handleGatewayRequest(gatewayRequest(token))).status).toBe(401);
+
+    // Dual-cap wiring sanity: this owner never had a live monthly budget, so
+    // every reserve/finalize call along the launch → gateway → finalize path
+    // must carry an undefined leg — never a fabricated window.
+    expect(state.budgetCalls.every((call) => call === undefined)).toBe(true);
+    expect(state.budgetCalls.length).toBeGreaterThan(0);
   });
 
   it('rejects the launch outright when the flat reservation itself no longer fits', async () => {

@@ -2,6 +2,7 @@ export const USER_SK_PROFILE = 'PROFILE' as const;
 export const AGENT_SK_PREFIX = 'AGENT#' as const;
 export const AGENT_GSI1SK_META = 'META' as const;
 export const RUN_SK_PREFIX = 'RUN#' as const;
+export const USER_BUDGET_SK_PREFIX = 'BUDGET#' as const;
 export const GSI1_NAME = 'gsi1' as const;
 
 export const userPk = (cognitoSub: string): string => `USER#${cognitoSub}`;
@@ -23,3 +24,19 @@ export const runMonthSkPrefix = (date: Date): string => {
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   return `${RUN_SK_PREFIX}${year}-${month}-`;
 };
+
+/** UTC "YYYY-MM" label for a date. */
+export const budgetMonthLabel = (date: Date): string => {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+};
+
+/**
+ * The BUDGET# window sort key for `date`'s UTC calendar month. Its value is
+ * what gets persisted verbatim as `run.budgetWindowKey` at reservation time,
+ * so deferred settlement can key off the run instead of re-deriving from
+ * `new Date()` (which would settle against the wrong month across a rollover).
+ */
+export const userBudgetSk = (date: Date): string =>
+  `${USER_BUDGET_SK_PREFIX}${budgetMonthLabel(date)}`;

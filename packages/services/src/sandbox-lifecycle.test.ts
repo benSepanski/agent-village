@@ -327,6 +327,33 @@ describe('finalizeSandboxRun — compute-spend reconciliation', () => {
     expect(runRepoMock.patchRun).toHaveBeenCalledTimes(1);
     expect(agentRepoMock.releaseActiveRun).toHaveBeenCalledTimes(1);
   });
+
+  it("settles the run's own persisted budgetWindowKey, not a re-derived one", async () => {
+    runRepoMock.getOne.mockResolvedValue({
+      ...existing,
+      reservedUsd: RESERVED,
+      budgetWindowKey: 'BUDGET#2026-05',
+    });
+    await finalizeSandboxRun({
+      agentId: AGENT_ID,
+      runId: RUN_ID,
+      exitCode: 0,
+      durationMs: DURATION_MS,
+    });
+    expect(agentRepoMock.finalizeSpend).toHaveBeenCalledWith(
+      expect.objectContaining({ userWindowKey: 'BUDGET#2026-05' }),
+    );
+  });
+
+  it('omits userWindowKey for a run with no budget window (legacy single-cap path)', async () => {
+    await finalizeSandboxRun({
+      agentId: AGENT_ID,
+      runId: RUN_ID,
+      exitCode: 0,
+      durationMs: DURATION_MS,
+    });
+    expect(agentRepoMock.finalizeSpend.mock.calls[0]![0]).not.toHaveProperty('userWindowKey');
+  });
 });
 
 describe('finalizeSandboxRun — run-outcome EMF metric', () => {

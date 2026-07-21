@@ -2,7 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import type { Table } from 'aws-cdk-lib/aws-dynamodb';
-import { Rule, Schedule } from 'aws-cdk-lib/aws-events';
+import { Rule } from 'aws-cdk-lib/aws-events';
 import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets';
 import { Effect, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import {
@@ -17,6 +17,7 @@ import { CfnScheduleGroup } from 'aws-cdk-lib/aws-scheduler';
 import type { Queue } from 'aws-cdk-lib/aws-sqs';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from '../../config/index.js';
+import { buildBudgetDriftFunction } from './budget-drift-lambda.js';
 import { toRetention } from './log-retention.js';
 import {
   buildDlq,
@@ -27,6 +28,7 @@ import {
   watchdogScheduleArnPattern,
 } from './runner-iam.js';
 import type { SandboxStack } from './sandbox-stack.js';
+import { buildSweeperFunction } from './sweeper-lambda.js';
 
 export interface RunnerStackProps extends StackProps {
   readonly config: EnvConfig;
@@ -38,7 +40,6 @@ const SELF_DIR = path.dirname(fileURLToPath(import.meta.url));
 const RUNNER_ENTRY = path.resolve(SELF_DIR, '../../../runner/src/handler.ts');
 const LIFECYCLE_ENTRY = path.resolve(SELF_DIR, '../../../runner/src/lifecycle.ts');
 const GATEWAY_ENTRY = path.resolve(SELF_DIR, '../../../runner/src/gateway.ts');
-const SWEEPER_ENTRY = path.resolve(SELF_DIR, '../../../runner/src/sweeper.ts');
 
 /** Long non-streaming Anthropic generations are forwarded synchronously (buffered). */
 const GATEWAY_TIMEOUT_MINUTES = 5;
@@ -52,8 +53,6 @@ const GATEWAY_TIMEOUT_MINUTES = 5;
 const GATEWAY_DEADLINE_BUFFER_MS = 10_000;
 const GATEWAY_UPSTREAM_TIMEOUT_MS = GATEWAY_TIMEOUT_MINUTES * 60_000 - GATEWAY_DEADLINE_BUFFER_MS;
 
-/** How often the stuck-run sweeper reconciles runs wedged in `running`. */
-const SWEEPER_RATE_MINUTES = 5;
 /**
  * EventBridge target retry window before a stop event that could not be
  * delivered to the lifecycle Lambda (throttling, a multi-hour finalizer
@@ -76,6 +75,8 @@ export class RunnerStack extends Stack {
   public readonly gatewayFunction: NodejsFunction;
   public readonly gatewayFunctionUrl: FunctionUrl;
   public readonly sweeperFunction: NodejsFunction;
+  /** Report-only budget-drift reconciliation job (M3). */
+  public readonly budgetDriftFunction: NodejsFunction;
   public readonly scheduleGroupName: string;
   public readonly schedulerInvokeRole: Role;
   public readonly watchdogGroupName: string;
@@ -91,10 +92,11 @@ export class RunnerStack extends Stack {
       'ScheduleGroup',
       `${props.config.prefix}-agents`,
     );
-    const watchdog = this.buildWatchdogInfra(props.config);
-    this.watchdogGroupName = watchdog.groupName;
-    this.watchdogDlq = watchdog.dlq;
-    this.watchdogStopTaskRole = watchdog.role;
+    ({
+      groupName: this.watchdogGroupName,
+      dlq: this.watchdogDlq,
+      role: this.watchdogStopTaskRole,
+    } = this.buildWatchdogInfra(props.config));
 
     // Built before the runner: the launcher injects the gateway URL into tasks.
     this.gatewayFunction = this.buildGatewayFunction(props);
@@ -109,7 +111,19 @@ export class RunnerStack extends Stack {
     this.buildTaskStoppedRule(props);
     // Stuck-run sweeper: last-resort backstop that finalizes runs wedged in
     // `running` past their max lifetime (poison-pill event / finalizer outage).
-    this.sweeperFunction = this.buildSweeperFunction(props);
+    this.sweeperFunction = buildSweeperFunction(this, {
+      config: props.config,
+      table: props.table,
+      watchdogGroupName: this.watchdogGroupName,
+      bundling: BUNDLING,
+    });
+    // Report-only drift reconciliation (M3): recomputes spend accumulators
+    // from run records and alarms via EMF; never writes a correction.
+    this.budgetDriftFunction = buildBudgetDriftFunction(this, {
+      config: props.config,
+      table: props.table,
+      bundling: BUNDLING,
+    });
     this.schedulerInvokeRole = this.buildSchedulerInvokeRole(props.config.prefix);
     this.buildOutputs();
   }
@@ -146,6 +160,7 @@ export class RunnerStack extends Stack {
     new CfnOutput(this, 'LifecycleFunctionArn', { value: this.lifecycleFunction.functionArn });
     new CfnOutput(this, 'GatewayFunctionUrl', { value: this.gatewayFunctionUrl.url });
     new CfnOutput(this, 'SweeperFunctionArn', { value: this.sweeperFunction.functionArn });
+    new CfnOutput(this, 'BudgetDriftFunctionArn', { value: this.budgetDriftFunction.functionArn });
     new CfnOutput(this, 'LifecycleDlqUrl', { value: this.lifecycleDlq.queueUrl });
     new CfnOutput(this, 'WatchdogDlqUrl', { value: this.watchdogDlq.queueUrl });
     new CfnOutput(this, 'ScheduleGroupName', { value: this.scheduleGroupName });
@@ -307,51 +322,6 @@ export class RunnerStack extends Stack {
         }),
       ],
     });
-  }
-
-  /**
-   * Stuck-run sweeper Lambda: finalizes sandbox runs wedged in `running` past
-   * their maximum lifetime via the same lifecycle settlement path (idempotent,
-   * fail-safe). Mirrors the lifecycle Lambda's env + IAM: it reads/writes the
-   * table and disarms the per-run watchdog schedule as finalization does.
-   */
-  private buildSweeperFunction(props: RunnerStackProps): NodejsFunction {
-    const { config, table } = props;
-    const fn = new NodejsFunction(this, 'SweeperFunction', {
-      functionName: `${config.prefix}-sweeper`,
-      entry: SWEEPER_ENTRY,
-      handler: 'handler',
-      runtime: Runtime.NODEJS_22_X,
-      architecture: Architecture.ARM_64,
-      memorySize: config.runnerMemoryMb,
-      timeout: Duration.seconds(60),
-      logGroup: this.logGroupFor('Sweeper', config),
-      environment: {
-        AV_ENV: config.env,
-        AV_TABLE_NAME: table.tableName,
-        AV_REGION: config.region,
-        AV_WATCHDOG_GROUP: this.watchdogGroupName,
-        // Reconciliation prices actual duration with the launcher's task size.
-        AV_SANDBOX_CPU: String(config.sandboxTaskCpu),
-        AV_SANDBOX_MEMORY: String(config.sandboxTaskMemoryMb),
-      },
-      bundling: BUNDLING,
-    });
-    table.grantReadWriteData(fn);
-    // Finalization disarms the per-run kill-switch schedule (best effort).
-    fn.addToRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: ['scheduler:DeleteSchedule'],
-        resources: [watchdogScheduleArnPattern(config, this.watchdogGroupName)],
-      }),
-    );
-    new Rule(this, 'StuckRunSweep', {
-      ruleName: `${config.prefix}-stuck-run-sweep`,
-      schedule: Schedule.rate(Duration.minutes(SWEEPER_RATE_MINUTES)),
-      targets: [new LambdaFunction(fn)],
-    });
-    return fn;
   }
 
   private buildSchedulerInvokeRole(prefix: string): Role {

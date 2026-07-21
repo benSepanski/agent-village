@@ -6,6 +6,7 @@ export {
   CreateAgentInput,
   RunSchema,
   UpdateAgentInput,
+  UpdateUserInput,
   UserSchema,
 } from '@agent-village/shared';
 export type {
@@ -25,6 +26,7 @@ export type {
   SesGrant,
   ToolGrant,
   UpdateAgentInput as UpdateAgentInputType,
+  UpdateUserInput as UpdateUserInputType,
   User,
   UserId,
 } from '@agent-village/shared';

@@ -6,6 +6,8 @@ import type {
   CreateAgentInputType,
   Run,
   UpdateAgentInputType,
+  UpdateUserInputType,
+  User,
 } from '../api-client/types.js';
 import { AgentForm } from '../components/AgentForm.js';
 import { ManifestSection } from '../components/ManifestSection.js';
@@ -15,6 +17,8 @@ import { RunControls } from '../components/RunControls.js';
 import { RunHistoryTable } from '../components/RunHistoryTable.js';
 import { SpendBar } from '../components/SpendBar.js';
 import { StatusBadge } from '../components/StatusBadge.js';
+import { UserBudget } from '../components/UserBudget.js';
+import { UserBudgetForm } from '../components/UserBudgetForm.js';
 
 interface RunNowResult {
   runId: string;
@@ -25,6 +29,50 @@ interface MonthSpendResult {
   month: string;
   costUsd: number;
   runCount: number;
+}
+
+interface AgentBudgetFigure {
+  agentId: string;
+  name: string;
+  spendLimitUsd: number;
+  spendUsedUsd: number;
+}
+
+/** GET /me/budget: the caller's live cap, current-month usage, and per-agent breakdown. */
+interface BudgetStatus {
+  month: string;
+  limitUsd: number | null;
+  usedUsd: number;
+  remainingUsd: number | null;
+  agents: AgentBudgetFigure[];
+}
+
+function UserBudgetSection() {
+  const qc = useQueryClient();
+  const { data } = useQuery<BudgetStatus>({
+    queryKey: ['me', 'budget'],
+    queryFn: () => api.get('/me/budget'),
+  });
+  const updateBudget = useMutation({
+    mutationFn: (patch: UpdateUserInputType) => api.patch<User>('/me/budget', patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me', 'budget'] }),
+  });
+  if (!data) return null;
+  return (
+    <>
+      <UserBudget limitUsd={data.limitUsd} usedUsd={data.usedUsd} />
+      <UserBudgetForm
+        initialLimitUsd={data.limitUsd}
+        busy={updateBudget.isPending}
+        onSave={async (userMonthlyBudgetUsd) => {
+          await updateBudget.mutateAsync({ userMonthlyBudgetUsd });
+        }}
+        onClear={async () => {
+          await updateBudget.mutateAsync({ userMonthlyBudgetUsd: null });
+        }}
+      />
+    </>
+  );
 }
 
 function MonthSpendSection({ agentId }: { agentId: string }) {
@@ -98,6 +146,8 @@ function AgentOverview({ agent }: { agent: Agent }) {
       <p>
         <MonthSpendSection agentId={agent.id} />
       </p>
+      <h3>Your monthly budget</h3>
+      <UserBudgetSection />
       <AgentActions agent={agent} />
       <h3>Application manifest</h3>
       <ManifestSection agent={agent} />

@@ -1,5 +1,5 @@
-import { agentRepo, runRepo } from '@agent-village/data';
-import { SpendLimitExceededError, estimateSandboxCost } from '@agent-village/domain';
+import { agentRepo, runRepo, userBudgetSk, type UserBudgetLeg } from '@agent-village/data';
+import { estimateSandboxCost } from '@agent-village/domain';
 import {
   RunSchema,
   runOutcomeMetric,
@@ -9,6 +9,7 @@ import {
   type RunId,
   type RunStatus,
 } from '@agent-village/shared';
+import { classifySpendRejection, resolveUserBudgetLeg } from './budget.js';
 import { mintRunToken } from './gateway-token.js';
 import { launchSandboxRun } from './sandbox.js';
 import { sandboxTaskSize } from './sandbox-size.js';
@@ -38,12 +39,17 @@ const runLog = (ctx: SandboxRunContext): { agentId: AgentId; runId: RunId; trace
   traceId: ctx.traceId,
 });
 
-function buildSandboxRun(
-  ctx: SandboxRunContext,
-  agent: Agent,
-  costUsd: number,
-  gatewayTokenHash: string,
-): Run {
+interface BuildSandboxRunInput {
+  ctx: SandboxRunContext;
+  agent: Agent;
+  costUsd: number;
+  gatewayTokenHash: string;
+  /** The BUDGET# window this run's reservation used, or null if unbudgeted. */
+  budgetWindowKey: string | null;
+}
+
+function buildSandboxRun(input: BuildSandboxRunInput): Run {
+  const { ctx, agent, costUsd, gatewayTokenHash, budgetWindowKey } = input;
   return RunSchema.parse({
     id: ctx.runId,
     agentId: agent.id,
@@ -67,6 +73,7 @@ function buildSandboxRun(
     // First observed transition; the lifecycle handler appends the rest from
     // the ECS task-state-change event when the task stops.
     events: [{ event: 'sandbox.run.launched', at: new Date(ctx.startedAt).toISOString() }],
+    budgetWindowKey,
     createdAt: new Date(ctx.startedAt).toISOString(),
   });
 }
@@ -75,9 +82,15 @@ async function reserveSandboxSpend(
   ctx: SandboxRunContext,
   agent: Agent,
   estimateUsd: number,
+  userBudget: UserBudgetLeg | undefined,
 ): Promise<boolean> {
   try {
-    await agentRepo.reserveSpend({ agentId: agent.id, ownerSub: agent.ownerSub, estimateUsd });
+    await agentRepo.reserveSpend({
+      agentId: agent.id,
+      ownerSub: agent.ownerSub,
+      estimateUsd,
+      ...(userBudget !== undefined ? { userBudget } : {}),
+    });
     logger.info({
       event: 'agent.run.spend_reserved',
       ...runLog(ctx),
@@ -85,24 +98,30 @@ async function reserveSandboxSpend(
     });
     return true;
   } catch (err) {
-    if (err instanceof SpendLimitExceededError) {
-      logger.warn({
-        event: 'agent.run.spend_rejected',
-        ...runLog(ctx),
-        // Real EMF datapoint for the spend-rejected alarm (Phase 3 step 07).
-        ...runOutcomeMetric('spend_limit_exceeded'),
-      });
-      return false;
-    }
-    throw err;
+    const kind = classifySpendRejection(err);
+    if (!kind) throw err;
+    logger.warn({
+      event: kind === 'user_budget' ? 'agent.run.budget_rejected' : 'agent.run.spend_rejected',
+      ...runLog(ctx),
+      // Real EMF datapoint for the spend-rejected alarm (Phase 3 step 07);
+      // RunStatus stays 'spend_limit_exceeded' for both caps per the M3 spec.
+      ...runOutcomeMetric('spend_limit_exceeded'),
+    });
+    return false;
   }
 }
 
-async function refund(ctx: SandboxRunContext, agent: Agent, estimateUsd: number): Promise<void> {
+async function refund(
+  ctx: SandboxRunContext,
+  agent: Agent,
+  estimateUsd: number,
+  userWindowKey: string | undefined,
+): Promise<void> {
   await agentRepo.finalizeSpend({
     agentId: agent.id,
     ownerSub: agent.ownerSub,
     deltaUsd: -estimateUsd,
+    ...(userWindowKey !== undefined ? { userWindowKey } : {}),
   });
   logger.warn({ event: 'agent.run.spend_refunded', ...runLog(ctx) });
 }
@@ -150,6 +169,7 @@ async function acquireGuard(
   ctx: SandboxRunContext,
   agent: Agent,
   estimateUsd: number,
+  userBudget: UserBudgetLeg | undefined,
 ): Promise<void> {
   try {
     await agentRepo.acquireActiveRun({
@@ -158,7 +178,9 @@ async function acquireGuard(
       runId: ctx.runId,
     });
   } catch (err) {
-    await refund(ctx, agent, estimateUsd);
+    // Both counters — agent cap and (if the owner had one) the user's monthly
+    // window — were reserved together, so the guard refund must release both.
+    await refund(ctx, agent, estimateUsd, userBudget?.windowKey);
     throw err;
   }
 }
@@ -191,7 +213,10 @@ async function onLaunchFailure(
   // run-list read. Gating both writes on the single claim keeps them exclusive.
   const reservedUsd = await runRepo.claimRunReservation(agent.id, run.createdAt, ctx.runId);
   if (reservedUsd !== null) {
-    await refund(ctx, agent, reservedUsd);
+    // Refund BOTH counters (agent cap + user window, if any) — the run's own
+    // persisted budgetWindowKey, not a re-derived "now", so this always
+    // matches whichever window the reservation actually landed in.
+    await refund(ctx, agent, reservedUsd, run.budgetWindowKey ?? undefined);
     // Refunded, so the run must not report the flat estimate (month-to-date
     // sums costUsd). Safe now: winning the claim means reconcile did not.
     await runRepo.patchRun(agent.id, run.createdAt, ctx.runId, { costUsd: 0 });
@@ -208,13 +233,20 @@ async function launchAndRecord(
   ctx: SandboxRunContext,
   agent: Agent,
   estimateUsd: number,
+  userBudget: UserBudgetLeg | undefined,
 ): Promise<SandboxRunResult> {
   const manifest = agent.manifest;
   if (!manifest) throw new Error('launchAndRecord requires a manifest');
   // Metered LLM access (ADR 0004): the run record keeps only the token's hash;
   // the full token travels to the task env via the launcher.
   const minted = mintRunToken(agent.id, ctx.runId);
-  const run = buildSandboxRun(ctx, agent, estimateUsd, minted.tokenHash);
+  const run = buildSandboxRun({
+    ctx,
+    agent,
+    costUsd: estimateUsd,
+    gatewayTokenHash: minted.tokenHash,
+    budgetWindowKey: userBudget?.windowKey ?? null,
+  });
   await runRepo.append(run);
   logger.info({ event: 'agent.run.persisted', ...runLog(ctx) });
   let taskArn: string;
@@ -256,10 +288,12 @@ export async function executeSandboxRun(
   const manifest = agent.manifest;
   if (!manifest) throw new Error('executeSandboxRun requires a manifest');
   const estimateUsd = sandboxEstimate(manifest.timeoutMinutes);
-  if (!(await reserveSandboxSpend(ctx, agent, estimateUsd))) {
+  const now = new Date(ctx.startedAt);
+  const userBudget = await resolveUserBudgetLeg(agent.ownerSub, userBudgetSk(now), now);
+  if (!(await reserveSandboxSpend(ctx, agent, estimateUsd, userBudget))) {
     const rejected = await appendRejected(ctx, agent);
     return { runId: rejected.id, status: rejected.status };
   }
-  await acquireGuard(ctx, agent, estimateUsd);
-  return launchAndRecord(ctx, agent, estimateUsd);
+  await acquireGuard(ctx, agent, estimateUsd, userBudget);
+  return launchAndRecord(ctx, agent, estimateUsd, userBudget);
 }

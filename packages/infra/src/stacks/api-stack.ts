@@ -1,43 +1,41 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import { CfnOutput, Duration, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import { CorsHttpMethod, HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
-import type { IUserPool, IUserPoolClient } from 'aws-cdk-lib/aws-cognito';
-import type { Table } from 'aws-cdk-lib/aws-dynamodb';
-import { Effect, PolicyStatement, type Role } from 'aws-cdk-lib/aws-iam';
-import { Architecture, type IFunction, Runtime } from 'aws-cdk-lib/aws-lambda';
+import type { IUserPool } from 'aws-cdk-lib/aws-cognito';
+import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
-import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
-import type { IBucket } from 'aws-cdk-lib/aws-s3';
+import { LogGroup } from 'aws-cdk-lib/aws-logs';
 import type { Construct } from 'constructs';
-import type { EnvConfig } from '../../config/index.js';
+import {
+  grantRunNowExtras,
+  grantSandboxLogsRead,
+  grantSecretsCrud,
+  grantSecretsList,
+  grantSchedulerCrud,
+  grantWorkspaceExtras,
+  toRetention,
+} from './api-stack-grants.js';
+import type { ApiStackProps, HandlerSpec } from './api-stack-types.js';
 
-export interface ApiStackProps extends StackProps {
-  readonly config: EnvConfig;
-  readonly table: Table;
-  readonly userPool: IUserPool;
-  readonly userPoolClient: IUserPoolClient;
-  readonly runnerFunction: IFunction;
-  readonly scheduleGroupName: string;
-  readonly schedulerInvokeRole: Role;
-  readonly workspaceBucket: IBucket;
-}
+export type { ApiStackProps } from './api-stack-types.js';
 
 const SELF_DIR = path.dirname(fileURLToPath(import.meta.url));
 const HANDLER_DIR = path.resolve(SELF_DIR, '../../../api/src/handlers');
 
-interface HandlerSpec {
-  name: string;
-  method: HttpMethod;
-  routePath: string;
-  perms: 'read' | 'write';
-  needsScheduler?: boolean;
-}
-
 const HANDLERS: HandlerSpec[] = [
   { name: 'me', method: HttpMethod.GET, routePath: '/me', perms: 'write' },
+  // Per-user windowed budgets (M3): status read is read-only; set/clear the
+  // live monthly cap writes the PROFILE item.
+  { name: 'me-budget', method: HttpMethod.GET, routePath: '/me/budget', perms: 'read' },
+  {
+    name: 'me-budget-update',
+    method: HttpMethod.PATCH,
+    routePath: '/me/budget',
+    perms: 'write',
+  },
   { name: 'agents-list', method: HttpMethod.GET, routePath: '/agents', perms: 'read' },
   {
     name: 'agents-create',
@@ -219,122 +217,4 @@ export class ApiStack extends Stack {
       grantWorkspaceExtras(fn, props, spec);
     }
   }
-}
-
-/**
- * secretsmanager:ListSecrets supports no resource-level scoping — '*' is the
- * only grantable resource; the handler narrows results with a name-prefix
- * filter in code. agents-delete needs it too for its orphan-secret sweep.
- */
-function grantSecretsList(fn: NodejsFunction): void {
-  fn.addToRolePolicy(
-    new PolicyStatement({
-      effect: Effect.ALLOW,
-      actions: ['secretsmanager:ListSecrets'],
-      resources: ['*'],
-    }),
-  );
-}
-
-/** FilterLogEvents over the sandbox task log group (account-wildcarded for credential-free synth). */
-function grantSandboxLogsRead(fn: NodejsFunction, config: EnvConfig): void {
-  const logGroupArn = `arn:aws:logs:${config.region}:*:log-group:${config.prefix}-sandbox`;
-  fn.addToRolePolicy(
-    new PolicyStatement({
-      effect: Effect.ALLOW,
-      actions: ['logs:FilterLogEvents', 'logs:GetLogEvents'],
-      resources: [logGroupArn, `${logGroupArn}:*`],
-    }),
-  );
-}
-
-function grantSecretsCrud(fn: NodejsFunction, config: EnvConfig): void {
-  fn.addToRolePolicy(
-    new PolicyStatement({
-      effect: Effect.ALLOW,
-      actions: [
-        'secretsmanager:CreateSecret',
-        'secretsmanager:GetSecretValue',
-        'secretsmanager:PutSecretValue',
-        'secretsmanager:DeleteSecret',
-      ],
-      resources: [
-        `arn:aws:secretsmanager:${config.region}:*:secret:agent-village/${config.env}/agents/*`,
-      ],
-    }),
-  );
-}
-
-function grantSchedulerCrud(fn: NodejsFunction, schedulerInvokeRole: Role): void {
-  fn.addToRolePolicy(
-    new PolicyStatement({
-      effect: Effect.ALLOW,
-      actions: [
-        'scheduler:CreateSchedule',
-        'scheduler:UpdateSchedule',
-        'scheduler:DeleteSchedule',
-        'scheduler:GetSchedule',
-      ],
-      resources: ['*'],
-    }),
-  );
-  fn.addToRolePolicy(
-    new PolicyStatement({
-      effect: Effect.ALLOW,
-      actions: ['iam:PassRole'],
-      resources: [schedulerInvokeRole.roleArn],
-    }),
-  );
-}
-
-function grantRunNowExtras(fn: NodejsFunction, props: ApiStackProps): void {
-  props.runnerFunction.grantInvoke(fn);
-  fn.addToRolePolicy(
-    new PolicyStatement({
-      effect: Effect.ALLOW,
-      actions: ['secretsmanager:GetSecretValue'],
-      resources: [
-        `arn:aws:secretsmanager:${props.config.region}:*:secret:agent-village/${props.config.env}/agents/*/anthropic-key-*`,
-      ],
-    }),
-  );
-}
-
-/**
- * Direct S3 access to an agent's workspace prefix (Phase 5 step 01). Both
- * handlers get the bucket name; list only needs to enumerate keys (each
- * request is narrowed to the caller's own prefix by the ownership-checked
- * service call, not by IAM — ListBucket has no key-prefix condition worth
- * adding here since the handler itself never returns another agent's keys),
- * presign needs get/put/delete on individual objects since the presigned URL
- * itself is the object-level scope handed to the client.
- */
-function grantWorkspaceExtras(fn: NodejsFunction, props: ApiStackProps, spec: HandlerSpec): void {
-  fn.addEnvironment('AV_WORKSPACE_BUCKET', props.workspaceBucket.bucketName);
-  if (spec.name === 'agents-workspace-list') {
-    fn.addToRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: ['s3:ListBucket'],
-        resources: [props.workspaceBucket.bucketArn],
-      }),
-    );
-  } else {
-    fn.addToRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
-        resources: [`${props.workspaceBucket.bucketArn}/*`],
-      }),
-    );
-  }
-}
-
-function toRetention(days: number): RetentionDays {
-  if (days <= 1) return RetentionDays.ONE_DAY;
-  if (days <= 3) return RetentionDays.THREE_DAYS;
-  if (days <= 7) return RetentionDays.ONE_WEEK;
-  if (days <= 14) return RetentionDays.TWO_WEEKS;
-  if (days <= 30) return RetentionDays.ONE_MONTH;
-  return RetentionDays.SIX_MONTHS;
 }

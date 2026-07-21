@@ -12,6 +12,16 @@ import { getConfig, getDocumentClient } from './client.js';
 import { isConditionalCheckFailed } from './errors-map.js';
 import { RUN_SK_PREFIX, agentPk, runGsi1sk, runMonthSkPrefix, runSk, userPk } from './keys.js';
 
+// Re-exported so `runRepo.sumUserMonthCost` / `runRepo.sumAgentLifetimeCost`
+// stay available (extracted to spend-summaries.ts to keep this file under the
+// file-size bound — see docs/conventions/file-size-bounds.md).
+export {
+  sumUserMonthCost,
+  sumAgentLifetimeCost,
+  type UserMonthCostSummary,
+  type AgentLifetimeCostSummary,
+} from './spend-summaries.js';
+
 const DEFAULT_LIMIT = 50;
 
 interface RunItem {

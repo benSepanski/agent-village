@@ -1,18 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SpendLimitExceededError, actualCost, estimateGatewayCall } from '@agent-village/domain';
+import {
+  SpendLimitExceededError,
+  UserBudgetExceededError,
+  actualCost,
+  estimateGatewayCall,
+} from '@agent-village/domain';
 import { AgentId, RunId } from '@agent-village/shared';
 
-const { agentRepoMock, runRepoMock, secretsMock } = vi.hoisted(() => ({
+const { agentRepoMock, runRepoMock, secretsMock, userRepoMock } = vi.hoisted(() => ({
   agentRepoMock: { getAgentById: vi.fn(), reserveSpend: vi.fn(), finalizeSpend: vi.fn() },
   runRepoMock: { getOne: vi.fn(), patchRun: vi.fn(), addRunUsage: vi.fn() },
   secretsMock: { getAnthropicKey: vi.fn() },
+  userRepoMock: { getProfile: vi.fn() },
 }));
 
 vi.mock('@agent-village/data', () => ({
   agentRepo: agentRepoMock,
   runRepo: runRepoMock,
   secrets: secretsMock,
-  userRepo: {},
+  userRepo: userRepoMock,
 }));
 
 import {
@@ -82,7 +88,7 @@ function upstream(status: number, body: string, contentType = 'application/json'
 }
 
 beforeEach(() => {
-  for (const repo of [agentRepoMock, runRepoMock, secretsMock]) {
+  for (const repo of [agentRepoMock, runRepoMock, secretsMock, userRepoMock]) {
     Object.values(repo).forEach((m) => m.mockReset());
   }
   fetchMock.mockReset();
@@ -342,6 +348,92 @@ describe('handleGatewayRequest — exhaustion', () => {
     runRepoMock.patchRun.mockRejectedValue(new Error('ddb down'));
     const res = await handleGatewayRequest(request());
     expect(res.status).toBe(402);
+  });
+});
+
+describe('handleGatewayRequest — user monthly budget (dual cap)', () => {
+  const budgetedRun = { ...runFixture, budgetWindowKey: 'BUDGET#2026-07' };
+
+  it("reserves against the run's own persisted window, not a freshly derived one", async () => {
+    runRepoMock.getOne.mockResolvedValue(budgetedRun);
+    userRepoMock.getProfile.mockResolvedValue({ userMonthlyBudgetUsd: 50 });
+    await handleGatewayRequest(request());
+    expect(agentRepoMock.reserveSpend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userBudget: { windowKey: 'BUDGET#2026-07', limitUsd: 50, now: expect.any(String) },
+      }),
+    );
+  });
+
+  it('402s with the gateway.run.budget_rejected event when the user budget rejects', async () => {
+    runRepoMock.getOne.mockResolvedValue(budgetedRun);
+    userRepoMock.getProfile.mockResolvedValue({ userMonthlyBudgetUsd: 50 });
+    agentRepoMock.reserveSpend.mockRejectedValue(
+      new UserBudgetExceededError({
+        ownerSub: SUB,
+        windowKey: 'BUDGET#2026-07',
+        budgetLimitUsd: 50,
+        spentUsd: 50,
+        estimateUsd: expectedEstimate,
+      }),
+    );
+    const res = await handleGatewayRequest(request());
+    expect(res.status).toBe(402);
+    const body = JSON.parse(res.body) as { error: { type: string } };
+    expect(body.error.type).toBe('billing_error');
+    // The mid-run breach still marks the run spend_limit_exceeded, same as an
+    // agent-cap breach — only the log event distinguishes which cap fired.
+    expect(runRepoMock.patchRun).toHaveBeenCalledWith(
+      AGENT_ID,
+      budgetedRun.createdAt,
+      RUN_ID,
+      expect.objectContaining({ status: 'spend_limit_exceeded' }),
+    );
+  });
+
+  it("finalizes with the run's userWindowKey on a successful reconcile", async () => {
+    runRepoMock.getOne.mockResolvedValue(budgetedRun);
+    userRepoMock.getProfile.mockResolvedValue({ userMonthlyBudgetUsd: 50 });
+    await handleGatewayRequest(request());
+    expect(agentRepoMock.finalizeSpend).toHaveBeenCalledWith(
+      expect.objectContaining({ userWindowKey: 'BUDGET#2026-07' }),
+    );
+  });
+
+  it('never looks up a budget leg when the run itself has no budgetWindowKey', async () => {
+    // runFixture (default) carries no budgetWindowKey.
+    await handleGatewayRequest(request());
+    expect(userRepoMock.getProfile).not.toHaveBeenCalled();
+  });
+
+  it('skips the user leg (falls back to agent-cap-only) if the owner cleared their budget mid-run', async () => {
+    runRepoMock.getOne.mockResolvedValue(budgetedRun);
+    userRepoMock.getProfile.mockResolvedValue({}); // no userMonthlyBudgetUsd
+    await handleGatewayRequest(request());
+    expect(agentRepoMock.reserveSpend.mock.calls[0]![0]).not.toHaveProperty('userBudget');
+    // M3 verification MAJOR 2: settle must mirror whatever reserve actually
+    // did. Reserve skipped the window leg above (cleared budget), so the
+    // reconcile/finalizeSpend call must NOT carry userWindowKey either — a
+    // mismatched settle would refund/reconcile a window that was never
+    // reserved against, driving spentUsd negative.
+    expect(agentRepoMock.finalizeSpend).toHaveBeenCalledTimes(1);
+    expect(agentRepoMock.finalizeSpend.mock.calls[0]![0]).not.toHaveProperty('userWindowKey');
+  });
+
+  it('reserve and settle agree even when the budget is cleared BETWEEN reserve and settle', async () => {
+    // resolveUserBudgetLeg is only invoked once per gateway call (before
+    // reserve) and its result is threaded into both legs — a profile change
+    // that lands after that single read cannot desync reserve from settle
+    // within this call.
+    runRepoMock.getOne.mockResolvedValue(budgetedRun);
+    userRepoMock.getProfile.mockResolvedValue({ userMonthlyBudgetUsd: 50 });
+    await handleGatewayRequest(request());
+    expect(userRepoMock.getProfile).toHaveBeenCalledTimes(1);
+    expect(agentRepoMock.reserveSpend.mock.calls[0]![0]).toHaveProperty('userBudget');
+    expect(agentRepoMock.finalizeSpend.mock.calls[0]![0]).toHaveProperty(
+      'userWindowKey',
+      'BUDGET#2026-07',
+    );
   });
 });
 

@@ -21,6 +21,12 @@ export interface EnvConfig {
   readonly sandboxTaskMemoryMb: number;
   /** Monthly budget cap in USD; >= 1. Triggers email alarms at 50/80/100%. */
   readonly monthlyBudgetUsd: number;
+  /**
+   * Alarm-worthy absolute drift (USD) between a persisted spend accumulator
+   * (agent.spendUsedUsd or a BUDGET# window's spentUsd) and the value the
+   * report-only drift job recomputes from run records (M3).
+   */
+  readonly budgetDriftThresholdUsd: number;
   /** Email address that receives Budget + alarm SNS notifications. */
   readonly alarmEmail: string;
   /** Optional custom domain for the SPA. */

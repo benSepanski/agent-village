@@ -4,13 +4,16 @@ import {
   AGENT_SK_PREFIX,
   GSI1_NAME,
   RUN_SK_PREFIX,
+  USER_BUDGET_SK_PREFIX,
   USER_SK_PROFILE,
   agentGsi1pk,
   agentPk,
   agentSk,
+  budgetMonthLabel,
   runGsi1sk,
   runMonthSkPrefix,
   runSk,
+  userBudgetSk,
   userPk,
 } from './keys.js';
 
@@ -67,5 +70,21 @@ describe('key helpers', () => {
     expect(GSI1_NAME).toBe('gsi1');
     expect(USER_SK_PROFILE).toBe('PROFILE');
     expect(AGENT_GSI1SK_META).toBe('META');
+  });
+
+  it('builds a UTC YYYY-MM budget month label', () => {
+    expect(budgetMonthLabel(new Date('2026-07-16T12:00:00.000Z'))).toBe('2026-07');
+    expect(budgetMonthLabel(new Date('2026-01-01T00:00:00.000Z'))).toBe('2026-01');
+  });
+
+  it('namespaces the user budget window sort key with the BUDGET# prefix', () => {
+    const sk = userBudgetSk(new Date('2026-07-16T12:00:00.000Z'));
+    expect(sk).toBe('BUDGET#2026-07');
+    expect(sk.startsWith(USER_BUDGET_SK_PREFIX)).toBe(true);
+  });
+
+  it('rolls the budget window sk over at the UTC month boundary', () => {
+    expect(userBudgetSk(new Date('2026-07-31T23:59:59.999Z'))).toBe('BUDGET#2026-07');
+    expect(userBudgetSk(new Date('2026-08-01T00:00:00.000Z'))).toBe('BUDGET#2026-08');
   });
 });

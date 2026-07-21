@@ -18,6 +18,7 @@ export const prodConfig: EnvConfig = {
   sandboxTaskCpu: 512,
   sandboxTaskMemoryMb: 1024,
   monthlyBudgetUsd: 20,
+  budgetDriftThresholdUsd: 1,
   alarmEmail: 'ben.sepanski@gmail.com',
   // sesSenderDomain: set to a verified SES identity (e.g. 'mail.example.com')
   // to enable agent `ses` grants in prod. Left unset until a domain is verified.

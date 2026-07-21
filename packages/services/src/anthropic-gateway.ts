@@ -1,13 +1,10 @@
-import { agentRepo, runRepo, secrets } from '@agent-village/data';
-import {
-  SpendLimitExceededError,
-  actualCost,
-  estimateGatewayCall,
-  type TokenUsage,
-} from '@agent-village/domain';
+import { agentRepo, runRepo, secrets, type UserBudgetLeg } from '@agent-village/data';
+import { actualCost, estimateGatewayCall, type TokenUsage } from '@agent-village/domain';
 import { AnthropicModel, z, type Agent, type Run } from '@agent-village/shared';
+import { classifySpendRejection } from './budget.js';
 import { logger } from './logger.js';
 import { parseRunToken, tokenHashMatches } from './gateway-token.js';
+import { resolveCallBudget } from './gateway-budget.js';
 import { MESSAGES_PATH, forwardToAnthropic, isUpstreamAbort } from './gateway-upstream.js';
 import { extractUsage } from './gateway-usage.js';
 
@@ -163,13 +160,28 @@ async function markSpendExhausted(run: Run): Promise<void> {
   }
 }
 
+/**
+ * `userBudget` is resolved once per gateway call (by the caller, from the
+ * run's own persisted `budgetWindowKey` — never a freshly derived "now"
+ * window) and threaded into BOTH this reservation and the eventual settle via
+ * `CallContext.userWindowKey`, so the two legs always agree on whether the
+ * window participated — see the settleWindowKey comment in
+ * handleGatewayRequest for why re-resolving independently at settle time
+ * would desync them.
+ */
 async function reserveOrReject(
   run: Run,
   agent: Agent,
   estimateUsd: number,
+  userBudget: UserBudgetLeg | undefined,
 ): Promise<GatewayResponse | null> {
   try {
-    await agentRepo.reserveSpend({ agentId: agent.id, ownerSub: agent.ownerSub, estimateUsd });
+    await agentRepo.reserveSpend({
+      agentId: agent.id,
+      ownerSub: agent.ownerSub,
+      estimateUsd,
+      ...(userBudget !== undefined ? { userBudget } : {}),
+    });
     logger.info({
       event: 'agent.run.spend_reserved',
       agentId: agent.id,
@@ -178,13 +190,20 @@ async function reserveOrReject(
     });
     return null;
   } catch (err) {
-    if (!(err instanceof SpendLimitExceededError)) throw err;
-    logger.warn({ event: 'agent.run.spend_rejected', agentId: agent.id, runId: run.id });
+    const kind = classifySpendRejection(err);
+    if (!kind) throw err;
+    logger.warn({
+      event: kind === 'user_budget' ? 'gateway.run.budget_rejected' : 'agent.run.spend_rejected',
+      agentId: agent.id,
+      runId: run.id,
+    });
     await markSpendExhausted(run);
     return errorResponse(
       HTTP_PAYMENT_REQUIRED,
       'billing_error',
-      'agent spend limit exceeded; call rejected by the metering gateway',
+      kind === 'user_budget'
+        ? 'user monthly budget exceeded; call rejected by the metering gateway'
+        : 'agent spend limit exceeded; call rejected by the metering gateway',
     );
   }
 }
@@ -194,6 +213,7 @@ interface CallContext {
   agent: Agent;
   model: AnthropicModel;
   estimateUsd: number;
+  userWindowKey: string | undefined;
 }
 
 async function refundEstimate(ctx: CallContext): Promise<void> {
@@ -201,6 +221,7 @@ async function refundEstimate(ctx: CallContext): Promise<void> {
     agentId: ctx.agent.id,
     ownerSub: ctx.agent.ownerSub,
     deltaUsd: -ctx.estimateUsd,
+    ...(ctx.userWindowKey !== undefined ? { userWindowKey: ctx.userWindowKey } : {}),
   });
   logger.warn({ event: 'agent.run.spend_refunded', agentId: ctx.agent.id, runId: ctx.run.id });
 }
@@ -241,7 +262,12 @@ async function reconcile(ctx: CallContext, upstream: GatewayResponse): Promise<v
   }
   const costUsd = actualCost(ctx.model, usage);
   const deltaUsd = costUsd - ctx.estimateUsd;
-  await agentRepo.finalizeSpend({ agentId: ctx.agent.id, ownerSub: ctx.agent.ownerSub, deltaUsd });
+  await agentRepo.finalizeSpend({
+    agentId: ctx.agent.id,
+    ownerSub: ctx.agent.ownerSub,
+    deltaUsd,
+    ...(ctx.userWindowKey !== undefined ? { userWindowKey: ctx.userWindowKey } : {}),
+  });
   logger.info({
     event: 'gateway.call.reconciled',
     agentId: ctx.agent.id,
@@ -336,10 +362,17 @@ export async function handleGatewayRequest(req: GatewayRequest): Promise<Gateway
   const call = parseCallBody(req.body);
   if ('status' in call) return call;
   const estimateUsd = estimateGatewayCall(call.model, call.maxTokens, req.body.length);
-  const rejected = await reserveOrReject(auth.run, auth.agent, estimateUsd);
+  const { userBudget, settleWindowKey } = await resolveCallBudget(auth.agent, auth.run);
+  const rejected = await reserveOrReject(auth.run, auth.agent, estimateUsd, userBudget);
   if (rejected) return rejected;
   return forwardAndReconcile(
-    { run: auth.run, agent: auth.agent, model: call.model, estimateUsd },
+    {
+      run: auth.run,
+      agent: auth.agent,
+      model: call.model,
+      estimateUsd,
+      userWindowKey: settleWindowKey,
+    },
     req,
   );
 }
