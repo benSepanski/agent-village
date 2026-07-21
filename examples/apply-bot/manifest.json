@@ -1,0 +1,18 @@
+{
+  "name": "apply-bot",
+  "image": "python",
+  "command": [
+    "bash",
+    "-c",
+    "cp -R /workspace/apply-bot /tmp/app && cd /tmp/app && python3 main.py"
+  ],
+  "schedule": "cron(0 13 * * ? *)",
+  "timeoutMinutes": 15,
+  "egressAllow": ["api.greenhouse.io", "jobs.lever.co", "pypi.org", "files.pythonhosted.org"],
+  "grants": [{ "kind": "secret", "name": "jobboard-api-key", "env": "JOBBOARD_API_KEY" }],
+  "env": {
+    "APPLY_BOT_MAX_PER_RUN": "3",
+    "APPLY_BOT_MODEL": "claude-haiku-4-5"
+  },
+  "flushIntervalSeconds": 300
+}

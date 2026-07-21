@@ -1,0 +1,9 @@
+# apply-bot has zero third-party runtime dependencies today — main.py uses
+# only the Python standard library (urllib, json, pathlib), so the manifest's
+# `command` does not run `pip install`.
+#
+# `pypi.org` and `files.pythonhosted.org` are already in manifest.json's
+# egressAllow for when you extend job-board scraping with real libraries
+# (e.g. `requests`, `beautifulsoup4`). Once you add a pin here, add
+# `pip install --no-cache-dir --user -r requirements.txt` to manifest.json's
+# `command`, ahead of `python3 main.py`.

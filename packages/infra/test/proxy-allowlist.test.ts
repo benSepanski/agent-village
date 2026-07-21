@@ -138,6 +138,75 @@ describe('resolveTarget (port-mapped original-destination recovery)', () => {
   });
 });
 
+// Connectivity recipes (M5, AC-6.1-6.5) — ENFORCEMENT layer. The DERIVATION
+// layer (buildEgressAllowlist including each recipe's hosts) is covered in
+// packages/services/src/sandbox-egress.test.ts; `infra` may not import from
+// `services` (dependency-cruiser layering), so the lists below are plain
+// literals mirroring what that derivation produces for each recipe.
+describe('AC-6.2 notion-reader recipe (enforcement)', () => {
+  const derived = ['api.notion.com', 'sts.us-east-1.amazonaws.com', 'logs.us-east-1.amazonaws.com'];
+
+  it('allow: api.notion.com is reachable', () => {
+    expect(isHostAllowed('api.notion.com', derived)).toBe(true);
+  });
+
+  it('deny: an off-list host is blocked', () => {
+    expect(isHostAllowed('evil.example.com', derived)).toBe(false);
+  });
+});
+
+describe('AC-6.3 partial-email recipe (enforcement)', () => {
+  const derived = ['imap.gmail.com', 'smtp.gmail.com'];
+
+  it('allow: IMAPS (993) and SMTPS (465) resolve and are allowed for the mail host', () => {
+    for (const port of [993, 465] as const) {
+      const target = resolveTarget(clientHelloWithSni('imap.gmail.com'), port);
+      expect(target).toEqual({ host: 'imap.gmail.com', port });
+      expect(isHostAllowed(target?.host ?? '', derived)).toBe(true);
+    }
+  });
+
+  it('deny: STARTTLS ports 143/587 are not supported ports at all', () => {
+    expect(SUPPORTED_PORTS).not.toContain(143);
+    expect(SUPPORTED_PORTS).not.toContain(587);
+  });
+
+  it('deny: a plaintext server-speaks-first greeting on an implicit-TLS port is unclassifiable, not passed through', () => {
+    // IMAP/SMTP STARTTLS servers speak plaintext first (e.g. an SMTP banner or
+    // an EHLO reply) — there is no SNI/Host to peek at, so resolveTarget must
+    // return null rather than guessing a target, on every supported TLS port.
+    const plaintextGreeting = Buffer.from('220 mail.example.com ESMTP ready\r\n');
+    for (const port of TLS_PORTS) {
+      expect(resolveTarget(plaintextGreeting, port)).toBeNull();
+    }
+  });
+
+  it('deny: an off-list mail host is blocked', () => {
+    expect(isHostAllowed('imap.evil-mail.example.com', derived)).toBe(false);
+  });
+});
+
+describe('AC-6.5 no new proxy features (recipe negative/contract)', () => {
+  it('SUPPORTED_PORTS is exactly the implicit-TLS + plaintext-HTTP set — no STARTTLS ports added', () => {
+    expect([...SUPPORTED_PORTS].sort((a, b) => a - b)).toEqual([80, 443, 465, 993]);
+  });
+
+  it('the proxy source carries no MCP or SSE transport handling', () => {
+    const files = ['allowlist.mjs', 'proxy.mjs', 'entrypoint.sh'];
+    for (const file of files) {
+      const src = readFileSync(new URL(`../proxy-image/${file}`, import.meta.url), 'utf8');
+      expect(src.toLowerCase()).not.toMatch(/\bmcp\b/);
+      expect(src.toLowerCase()).not.toMatch(/\bsse\b|event-stream/);
+    }
+  });
+
+  it('a plaintext STARTTLS greeting on an implicit-TLS port is never resolved to a target (no upgrade path added)', () => {
+    const ehlo = Buffer.from('EHLO mail.example.com\r\n');
+    expect(resolveTarget(ehlo, 587)).toBeNull();
+    expect(resolveTarget(ehlo, 143)).toBeNull();
+  });
+});
+
 describe('entrypoint.sh port map lockstep', () => {
   const script = readFileSync(new URL('../proxy-image/entrypoint.sh', import.meta.url), 'utf8');
 

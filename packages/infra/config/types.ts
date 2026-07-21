@@ -1,6 +1,17 @@
+/**
+ * The two first-party environments baked into `CONFIGS`. Any other `env`
+ * value must come from an injected {@link EnvConfig} (see config/index.ts).
+ */
+export type FirstPartyEnv = 'dev' | 'prod';
+
 export interface EnvConfig {
-  /** Environment name; appears in resource names and tags. */
-  readonly env: 'dev' | 'prod';
+  /**
+   * Environment name; appears in resource names and tags. `'dev'`/`'prod'`
+   * are reserved for the first-party configs in this repo — a dependent
+   * repo injects its own `EnvConfig` with a different `env` value (see
+   * `EnvConfigSchema` in config/schema.ts, which enforces the reservation).
+   */
+  readonly env: string;
   /** Resource name prefix; e.g. `agent-village-dev` */
   readonly prefix: string;
   /** AWS region */

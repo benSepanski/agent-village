@@ -187,6 +187,20 @@ finishes, CDK prints **stack outputs** — copy these somewhere:
      the browser console for the "Cognito env vars missing" warning —
      its _absence_ is the signal you want).
 
+### Next: build apps on your deployed platform
+
+Now that you have a deployed platform, you're ready to:
+
+1. **Build and run applications** — follow
+   [Path A in app-development.md](../app-development.md#path-a-consume-an-existing-deployment)
+   to share the deployment coordinates with developers and have them build
+   apps on it using the CLI.
+
+2. **Deploy your own custom platform instance** (for a team fork, private
+   deployment, etc.) — follow
+   [Path B in app-development.md](../app-development.md#path-b-deploy-your-own-platform-instance)
+   to inject a custom `EnvConfig` and deploy a second instance.
+
 ### Tearing it back down
 
 ```bash
