@@ -7,11 +7,50 @@ everything in this directory against `AV_E2E_BASE_URL` (default
 
 Two tiers of spec live here:
 
-| Spec                     | Needs                             | Runs by default |
-| ------------------------ | --------------------------------- | --------------- |
-| `smoke.spec.ts`          | nothing (unauthenticated SPA)     | yes             |
-| `mvp.spec.ts`            | unauth portion only; rest `fixme` | partially       |
-| `phase3-sandbox.spec.ts` | a **deployed AWS environment**    | no — opt-in     |
+| Spec                     | Needs                                | Runs by default |
+| ------------------------ | ------------------------------------ | --------------- |
+| `smoke.spec.ts`          | nothing (unauthenticated SPA)        | yes             |
+| `mvp.spec.ts`            | nothing — authed portion runs mocked | yes             |
+| `phase3-sandbox.spec.ts` | a **deployed AWS environment**       | no — opt-in     |
+
+## Authenticated tests (`fixtures/auth.ts`)
+
+`mvp.spec.ts`'s "happy path" test (sign in, create agent, run-now, replay)
+uses `authedTest` from `fixtures/auth.ts` instead of the plain Playwright
+`test`. There is no deployed Cognito in CI, so the fixture supports two
+modes:
+
+- **Mock mode (default, used by CI).** The app's auth calls
+  (`src/auth/auth-client.ts`) are swapped for an in-memory session via
+  `window.__AV_AUTH_MODE__`/`window.__AV_MOCK_SESSION__`, set with
+  `page.addInitScript` before any app script runs. Every `/agents*` and
+  `/me/budget` request is fulfilled by an in-memory store
+  (`fixtures/mock-api-state.ts` / `fixtures/mock-api-routes.ts`) — fully
+  hermetic, no real network calls, no secrets.
+- **Real-Cognito mode.** Set `AV_E2E_STORAGE_STATE` to a Playwright
+  storage-state file captured against a real deployed pool (see
+  `phase3-sandbox.spec.ts`'s fixture setup below); mock auth/API
+  installation is skipped and the test drives the real UI against the real
+  API with that session.
+
+### Env contract
+
+| Var                         | Mode | Meaning                                                                      |
+| --------------------------- | ---- | ---------------------------------------------------------------------------- |
+| _(none)_                    | mock | Default. Hermetic; no external calls. Used by CI.                            |
+| `AV_E2E_STORAGE_STATE`      | real | Path to a captured Playwright storage-state file; enables real-Cognito mode. |
+| `AV_E2E_ENV`                | real | Consulted by the prod-refusal guard.                                         |
+| `AV_E2E_BASE_URL`           | real | Target URL; also consulted by the prod-refusal guard.                        |
+| `VITE_COGNITO_USER_POOL_ID` | real | If set in the environment, also consulted by the prod-refusal guard.         |
+
+**Security:** no test credentials are committed to the repo. Mock mode uses
+a fake in-memory session (`fixtures/auth.ts`'s `DEFAULT_SESSION`) — never a
+real token. Real mode reads `AV_E2E_STORAGE_STATE` from a gitignored file,
+or (in the deploy pipeline) from a one-time storage-capture step driven by
+GH secrets (`AV_E2E_USER_EMAIL`/`AV_E2E_PASSWORD`) that are never committed
+or echoed. Before using a captured real session, the fixture refuses to run
+if `AV_E2E_ENV`, `AV_E2E_BASE_URL`, or `VITE_COGNITO_USER_POOL_ID` looks
+prod-like (matches `/prod/i`) — see `assertNotProd` in `fixtures/auth.ts`.
 
 ## Phase 3 sandbox acceptance (`phase3-sandbox.spec.ts`)
 

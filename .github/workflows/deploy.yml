@@ -43,7 +43,22 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+
+      # VITE_* vars bake the Cognito/API config into the built SPA bundle at
+      # build time (Vite inlines import.meta.env at compile time, not at
+      # runtime). Without these the bundle ships with no auth/API config.
+      # First deploy of a fresh env has no pool id yet — see the
+      # chicken-and-egg note in packages/infra/src/stacks/web-stack.ts and
+      # docs/playbooks/deploy-env.md (or: deploy -auth/-api first, populate
+      # these secrets from their outputs, then re-run with AV_DEPLOY_WEB=1 to
+      # ship the real bundle on deploy #2).
+      - name: Build
+        run: pnpm build
+        env:
+          VITE_COGNITO_USER_POOL_ID: ${{ secrets.VITE_COGNITO_USER_POOL_ID_DEV }}
+          VITE_COGNITO_CLIENT_ID: ${{ secrets.VITE_COGNITO_CLIENT_ID_DEV }}
+          VITE_COGNITO_DOMAIN: ${{ secrets.VITE_COGNITO_DOMAIN_DEV }}
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL_DEV }}
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -51,8 +66,14 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_DEV }}
           aws-region: us-east-1
 
+      # AV_DEPLOY_WEB=1 makes WebStack refuse to ship the placeholder page:
+      # it throws if packages/web/dist is missing instead of silently
+      # deploying an empty SPA. `pnpm build` above always produces a dist,
+      # so this only fires if the build step was skipped.
       - name: CDK deploy
         run: pnpm --filter @agent-village/infra deploy:dev
+        env:
+          AV_DEPLOY_WEB: '1'
 
       - name: Log in to ECR
         id: ecr
@@ -116,7 +137,17 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+
+      # VITE_* vars bake the Cognito/API config into the built SPA bundle at
+      # build time (Vite inlines import.meta.env at compile time, not at
+      # runtime). Without these the bundle ships with no auth/API config.
+      - name: Build
+        run: pnpm build
+        env:
+          VITE_COGNITO_USER_POOL_ID: ${{ secrets.VITE_COGNITO_USER_POOL_ID_PROD }}
+          VITE_COGNITO_CLIENT_ID: ${{ secrets.VITE_COGNITO_CLIENT_ID_PROD }}
+          VITE_COGNITO_DOMAIN: ${{ secrets.VITE_COGNITO_DOMAIN_PROD }}
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL_PROD }}
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -124,11 +155,16 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_PROD }}
           aws-region: us-east-1
 
+      # AV_DEPLOY_WEB=1 makes WebStack refuse to ship the placeholder page:
+      # it throws if packages/web/dist is missing instead of silently
+      # deploying an empty SPA. `pnpm build` above always produces a dist,
+      # so this only fires if the build step was skipped.
       - name: CDK deploy
         # AV_PROD_ACCOUNT_ID (repo variable) pins the prod account — CDK refuses
         # to deploy if the assumed role belongs to a different account.
         env:
           AV_PROD_ACCOUNT_ID: ${{ vars.AV_PROD_ACCOUNT_ID }}
+          AV_DEPLOY_WEB: '1'
         run: pnpm --filter @agent-village/infra deploy:prod -- --require-approval never
 
       - name: Log in to ECR

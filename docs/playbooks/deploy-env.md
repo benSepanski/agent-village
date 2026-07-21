@@ -147,17 +147,45 @@ finishes, CDK prints **stack outputs** — copy these somewhere:
    Confirmation" email to `alarmEmail`. **Click the "Confirm
    subscription" link** — until you do, no alerts will arrive. Same
    applies the first time you deploy prod.
-3. **Wire the SPA to your Cognito pool.** The web bundle reads its
-   Cognito and API configuration at **build time** from Vite env vars
-   (see [`amplify-config.ts`](../../packages/web/src/auth/amplify-config.ts)).
-   Using the stack outputs from the first deploy, set
-   `VITE_COGNITO_USER_POOL_ID`, `VITE_COGNITO_CLIENT_ID`,
-   `VITE_COGNITO_DOMAIN`, and `VITE_API_BASE_URL` (e.g. in
-   `packages/web/.env.local`), rebuild (`pnpm build`), and deploy again.
-   The `WebStack` ships whatever is in `packages/web/dist` at synth
-   time — and a placeholder page if no bundle exists
-   ([`web-stack.ts`](../../packages/infra/src/stacks/web-stack.ts)).
-   Without the env vars, the SPA loads but sign-in is disabled.
+3. **Wire the SPA to your Cognito pool, then ship a working bundle.** The
+   web bundle reads its Cognito and API configuration at **build time**
+   from Vite env vars, inlined into the JS at compile time — not read at
+   runtime (see
+   [`amplify-config.ts`](../../packages/web/src/auth/amplify-config.ts)).
+   `pnpm build` above ran with none of these set — that does **not**
+   produce the placeholder. It builds a real SPA bundle that just has no
+   Cognito/API config baked in, so it deploys and loads fine but **sign-in
+   silently does nothing** (`amplify-config.ts` only `console.warn`s and
+   skips configuring Amplify). This is expected on the very first deploy
+   and is not itself an error, but it's easy to mistake for "working"
+   because the page renders. Fix it:
+   - Using the stack outputs from the first deploy, set
+     `VITE_COGNITO_USER_POOL_ID` (from `UserPoolId`),
+     `VITE_COGNITO_CLIENT_ID` (from `UserPoolClientId`),
+     `VITE_COGNITO_DOMAIN` (from the `-auth` stack's `UserPoolDomain`
+     output), and `VITE_API_BASE_URL` (from `ApiEndpoint`) — e.g. in
+     `packages/web/.env.local` for a local build.
+   - Rebuild (`pnpm build`) so `packages/web/dist` now contains the
+     config-bearing bundle, then re-deploy with the guard flag set:
+     `AV_DEPLOY_WEB=1 pnpm --filter @agent-village/infra deploy:dev`.
+     `AV_DEPLOY_WEB=1` makes `WebStack` **refuse to synth** if
+     `packages/web/dist/index.html` is missing entirely, instead of
+     silently shipping the placeholder over a real deploy — see the guard
+     in `web-stack.ts` and its test,
+     [`web-stack.test.ts`](../../packages/infra/src/stacks/web-stack.test.ts).
+     Without the flag (e.g. plain `cdk synth` in a fresh checkout with no
+     dist at all), a missing bundle only warns and falls back to the
+     placeholder — that's what keeps `pnpm --filter @agent-village/infra synth`
+     green in CI with no credentials and no built SPA.
+   - **The `WebServingPlaceholder` stack output does not tell you whether
+     sign-in works.** It only distinguishes "some dist directory shipped"
+     (`"false"`) from "no dist directory existed, placeholder HTML shipped
+     instead" (`"true"`). A config-less real bundle (this step, before you
+     add the `VITE_*` vars) reports `"false"` even though sign-in is
+     broken. To actually confirm sign-in works, open the deployed URL and
+     check that a "Sign in" control appears and does something (or check
+     the browser console for the "Cognito env vars missing" warning —
+     its _absence_ is the signal you want).
 
 ### Tearing it back down
 
@@ -235,12 +263,33 @@ In the AWS Console, do this twice — once for `dev`, once for `prod`:
    - `AV_DEPLOY_DEV_ENABLED` = `true`
      (gates the dev job — leave this unset until the dev role above
      exists, otherwise CI will fail noisily).
-4. After the first CI deploy succeeds, add two more **Secrets**:
-   - `AV_DEV_URL` = the CloudFront URL from the deploy outputs.
-   - `AV_PROD_URL` = same, for prod (set after first prod deploy).
+4. After the first CI deploy succeeds, add these **Secrets** (per env —
+   `_DEV` and `_PROD` suffixes), copied from the CDK stack outputs of that
+   first deploy:
+   - `AV_DEV_URL` / `AV_PROD_URL` = the CloudFront `WebUrl` output.
+   - `VITE_COGNITO_USER_POOL_ID_DEV` / `_PROD` = the `-api` stack's
+     `UserPoolId` output.
+   - `VITE_COGNITO_CLIENT_ID_DEV` / `_PROD` = the `-api` stack's
+     `UserPoolClientId` output.
+   - `VITE_COGNITO_DOMAIN_DEV` / `_PROD` = the `-auth` stack's
+     `UserPoolDomain` output.
+   - `VITE_API_BASE_URL_DEV` / `_PROD` = the `-api` stack's
+     `ApiEndpoint` output.
 
-   The deploy workflow feeds these to Playwright as `AV_E2E_BASE_URL`
-   for the post-deploy smoke test ([`deploy.yml`](../../.github/workflows/deploy.yml)).
+   `deploy.yml` feeds `AV_DEV_URL`/`AV_PROD_URL` to Playwright as
+   `AV_E2E_BASE_URL` for the post-deploy smoke test, and feeds the
+   `VITE_*` secrets to the **build** step so the SPA bundle bakes in
+   working Cognito/API config before `cdk deploy` (with
+   `AV_DEPLOY_WEB=1`) ships it — see
+   [`deploy.yml`](../../.github/workflows/deploy.yml) and the
+   chicken-and-egg note in [step 2](#after-this-first-deploy-three-things-to-do)
+   above: `deploy.yml`'s Build step always runs `pnpm build` before
+   `cdk deploy`, so **the very first CI-driven deploy of a fresh env ships
+   a real but config-less SPA, not the placeholder** — these secrets
+   don't exist until that first deploy's outputs exist, so the bundle
+   builds successfully but sign-in silently does nothing. Add the secrets
+   after deploy #1, then either re-run the workflow or just wait for the
+   next push to `main` — deploy #2 ships a bundle with working sign-in.
 
 ---
 
@@ -271,9 +320,50 @@ SHA. The OIDC deploy role must be allowed to push to ECR —
    secrets) after CDK finishes. Failure here means the infra is up but
    the SPA didn't load right.
 3. **CloudFront URL** — open it. You should see the SPA, not the
-   placeholder.
-4. **CloudFormation Console** — every stack should be `UPDATE_COMPLETE`
+   placeholder, **and** you should be able to actually sign in. A page
+   that renders is not enough evidence on its own — see the next point.
+4. **`WebServingPlaceholder` stack output** — `CloudFormation Console →
+<prefix>-web stack → Outputs`. This tells you whether _any_ dist
+   directory was deployed (`"false"`) or nothing was built at all and the
+   fallback HTML shipped (`"true"`). **It does not tell you whether
+   sign-in works** — a first deploy with no `VITE_*` secrets set still
+   reports `"false"` even though sign-in is silently broken (see
+   [step 2](#after-this-first-deploy-three-things-to-do)). To check
+   sign-in itself: open the deployed URL's browser console and confirm
+   there's no "Cognito env vars missing" warning, or just click "Sign in"
+   and confirm it goes to Cognito's hosted UI instead of doing nothing.
+   If `WebServingPlaceholder` is `"true"`, or sign-in doesn't work even
+   though it's `"false"`, see [step 2](#after-this-first-deploy-three-things-to-do) /
+   [3b](#3b-configure-github-repo-settings) above — you likely need to
+   add or refresh the `VITE_*` secrets and redeploy.
+5. **CloudFormation Console** — every stack should be `UPDATE_COMPLETE`
    or `CREATE_COMPLETE`, no `_ROLLBACK_`.
+
+### CI (every PR and push to `main`) vs. deploy
+
+Two separate GitHub Actions workflows, easy to conflate:
+
+- **[`ci.yml`](../../.github/workflows/ci.yml)** runs on every PR and
+  push, all as steps in one `verify` job: format, lint, typecheck, unit
+  tests, `pnpm build`, a credential-free `cdk synth` (dev context, fake
+  account/region — this is where the placeholder-fallback path in
+  `web-stack.ts` is exercised), the dependency-cruiser structural check,
+  and finally **mocked-auth E2E** (`pnpm exec playwright install` +
+  `pnpm e2e`): `smoke.spec.ts` and
+  `mvp.spec.ts`'s sign-in → create agent → run-now → replay happy path,
+  driven against an in-memory mock auth session and mocked API routes —
+  no deployed Cognito, no AWS credentials, no secrets required (see
+  [`packages/web/e2e/README.md`](../../packages/web/e2e/README.md)).
+  `phase3-sandbox.spec.ts` skips itself here (opt-in via `E2E_AWS=1`,
+  needs a real deployment).
+- **[`deploy.yml`](../../.github/workflows/deploy.yml)** (this section)
+  actually deploys: builds with the real `VITE_*` secrets, `cdk deploy`,
+  builds/pushes the sandbox and egress-proxy images, then runs the
+  **smoke E2E against the deployed URL** (`AV_E2E_BASE_URL`) as a
+  post-deploy check.
+
+So a PR can be green without ever touching AWS, and a deploy re-validates
+against the real, deployed stack afterward.
 
 ---
 

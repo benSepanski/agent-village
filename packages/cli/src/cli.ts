@@ -1,4 +1,9 @@
 import { Command } from 'commander';
+import type { AdminUsersActionOptions } from './commands/admin-cognito.js';
+import { adminUsersDisable } from './commands/admin-users-disable.js';
+import { adminUsersEnable } from './commands/admin-users-enable.js';
+import { adminUsersList } from './commands/admin-users-list.js';
+import { adminUsersResetPassword } from './commands/admin-users-reset-password.js';
 import { agentsCreate } from './commands/agents-create.js';
 import { agentsList } from './commands/agents-list.js';
 import { agentsManifest } from './commands/agents-manifest.js';
@@ -150,6 +155,66 @@ function registerWorkspace(program: Command): void {
     });
 }
 
+function registerAdminUsersCommand(
+  users: Command,
+  name: string,
+  description: string,
+  action: (email: string, opts: AdminUsersActionOptions) => Promise<string>,
+): void {
+  users
+    .command(`${name} <email>`)
+    .description(description)
+    .requiredOption('--env <env>', 'dev or prod')
+    .option('--region <region>', 'AWS region (default: AWS_REGION env, then us-east-1)')
+    .option(
+      '--user-pool-id <id>',
+      'Skip pool discovery (default: AV_USER_POOL_ID env, then ListUserPools by name)',
+    )
+    .action(async (email: string, opts: AdminUsersActionOptions) => {
+      process.stdout.write(`${await action(email, opts)}\n`);
+    });
+}
+
+function registerAdminUsers(admin: Command): void {
+  const users = admin
+    .command('users')
+    .description(
+      'Cognito user administration — operator AWS credentials (default provider chain), not the village API',
+    );
+  users
+    .command('list')
+    .description('List every user in the pool')
+    .requiredOption('--env <env>', 'dev or prod')
+    .option('--region <region>', 'AWS region (default: AWS_REGION env, then us-east-1)')
+    .option(
+      '--user-pool-id <id>',
+      'Skip pool discovery (default: AV_USER_POOL_ID env, then ListUserPools by name)',
+    )
+    .action(async (opts: AdminUsersActionOptions) => {
+      process.stdout.write(`${await adminUsersList(opts)}\n`);
+    });
+  registerAdminUsersCommand(
+    users,
+    'disable',
+    'Block sign-in for one user (reversible)',
+    adminUsersDisable,
+  );
+  registerAdminUsersCommand(users, 'enable', 'Restore sign-in for one user', adminUsersEnable);
+  registerAdminUsersCommand(
+    users,
+    'reset-password',
+    'Send a Cognito password-reset code (Cognito-native users only)',
+    adminUsersResetPassword,
+  );
+}
+
+function registerAdmin(program: Command): void {
+  const admin = program
+    .command('admin')
+    .description('Operator-only commands using your own AWS credentials (not the village API)');
+  registerAdminUsers(admin);
+}
+
 function registerAuth(program: Command): void {
   program
     .command('login')
@@ -181,6 +246,7 @@ export function buildCli(): Command {
   registerBudget(program);
   registerSecrets(program);
   registerWorkspace(program);
+  registerAdmin(program);
 
   program
     .command('init <dir>')
