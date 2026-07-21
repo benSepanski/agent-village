@@ -4,8 +4,10 @@ Handoff after an adversarial multi-agent audit of the platform's guarantee
 surfaces (spend cap, sandbox isolation, concurrency, API/auth, ops resilience),
 run on the `claude/ultracode-production-ready-a27e50` branch as the "make the
 library production-ready before re-implementing apply-bot on it" step. 14
-findings survived verification (12 confirmed, 2 plausible). **7 fixed this pass;
-the rest are deferred with concrete fix sketches below.**
+findings survived verification (12 confirmed, 2 plausible). **7 fixed this
+pass; the remaining 6 were deferred with concrete fix sketches below, then
+closed in a follow-up pass (PR #25) — every finding tracked in this note is
+now closed.**
 
 ## Fixed this pass (with regression tests)
 
