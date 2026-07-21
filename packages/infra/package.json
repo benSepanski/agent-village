@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "eslint . --max-warnings=0",
@@ -11,6 +16,7 @@
     "synth": "cdk synth --all --context env=${AV_CDK_ENV:-dev}",
     "synth:dev": "cdk synth --all --context env=dev",
     "synth:prod": "cdk synth --all --context env=prod",
+    "deploy": "cdk deploy --all --context env=${AV_CDK_ENV:-dev} --require-approval never",
     "deploy:dev": "cdk deploy --all --context env=dev --require-approval never",
     "deploy:prod": "cdk deploy --all --context env=prod",
     "diff:dev": "cdk diff --all --context env=dev",
@@ -21,7 +27,8 @@
     "@agent-village/shared": "workspace:*",
     "aws-cdk-lib": "^2.175.0",
     "cdk-nag": "^2.34.0",
-    "constructs": "^10.4.0"
+    "constructs": "^10.4.0",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "aws-cdk": "^2.175.0",

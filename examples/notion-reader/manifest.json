@@ -1,0 +1,10 @@
+{
+  "name": "notion-reader",
+  "image": "sandbox-base",
+  "schedule": "cron(0 9 ? * MON *)",
+  "timeoutMinutes": 5,
+  "egressAllow": ["api.notion.com"],
+  "grants": [{ "kind": "notion", "secretName": "notion-token" }],
+  "env": {},
+  "flushIntervalSeconds": 0
+}

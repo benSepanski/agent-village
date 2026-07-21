@@ -1,0 +1,10 @@
+{
+  "name": "anthropic-only",
+  "image": "sandbox-base",
+  "schedule": "rate(1 hour)",
+  "timeoutMinutes": 5,
+  "egressAllow": [],
+  "grants": [],
+  "env": {},
+  "flushIntervalSeconds": 0
+}

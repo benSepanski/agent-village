@@ -9,6 +9,6 @@
     "exactOptionalPropertyTypes": false
   },
   "references": [{ "path": "../shared" }],
-  "include": ["src/**/*", "bin/**/*", "config/**/*"],
+  "include": ["index.ts", "src/**/*", "bin/**/*", "config/**/*"],
   "exclude": ["dist", "cdk.out", "node_modules", "**/*.test.ts"]
 }
