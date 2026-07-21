@@ -6,7 +6,6 @@ All 14 steps below are delivered. Known deviations from this spec as shipped:
 
 - **Google federation is not wired** — the Cognito client supports only the `COGNITO` identity provider; email/password is the working sign-in (see [key-properties/user-auth](../key-properties/user-auth.md)).
 - **The prompt scratchpad's standalone "Run" has no backend** — "Save to agent" works; one-off scratchpad runs do not execute.
-- **The `metric` log payloads are not EMF-formatted**, so the custom-namespace alarms are inert (see [observability](../architecture/observability.md#metrics)).
 
 ## Scope
 
