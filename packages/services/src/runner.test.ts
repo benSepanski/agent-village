@@ -8,6 +8,7 @@ import {
   UserBudgetExceededError,
   hashSystemPrompt,
 } from '@agent-village/domain';
+import type { LogEnvelope } from '@agent-village/shared';
 
 const { agentRepoMock, runRepoMock, secretsMock, sandboxMock, userRepoMock } = vi.hoisted(() => ({
   agentRepoMock: {
@@ -46,6 +47,7 @@ vi.mock('@agent-village/data', () => ({
 vi.mock('./sandbox.js', () => ({ launchSandboxRun: sandboxMock.launchSandboxRun }));
 
 import { executeRun, monthToDateSpend, setAnthropicFactory } from './runner.js';
+import { logger } from './logger.js';
 
 const AGENT_ID = '01HZ1234567890ABCDEFGHJKMN';
 const ORIG_RUN_ID = '01HZN0PQRSTVWXYZ0123456789';
@@ -539,5 +541,88 @@ describe('executeRun (replay)', () => {
       executeRun({ agentId: AGENT_ID, replayOfRunId: ORIG_RUN_ID }),
     ).rejects.toBeInstanceOf(ReplayPromptMismatchError);
     expect(agentRepoMock.reserveSpend).not.toHaveBeenCalled();
+  });
+});
+
+// AC-1.1 ("every structured log line for that run carries [traceId]") — the
+// 1.0 verdict (skeptic #3 / punch-list #14) found no test backing this: prior
+// coverage only checked the logger's base fields and event-name taxonomy
+// (logger.test.ts), never that a single run's log lines share one traceId.
+// executeRun is the one place a run's traceId is minted (makeContext) and
+// threaded through every logger.info/error call via runLog(ctx), so it is the
+// integration point that actually proves propagation end-to-end.
+describe('executeRun (structured-log envelope + traceId propagation — AC-1.1)', () => {
+  function loggedEnvelopes(
+    infoSpy: ReturnType<typeof vi.spyOn<typeof logger, 'info'>>,
+    errorSpy: ReturnType<typeof vi.spyOn<typeof logger, 'error'>>,
+  ): LogEnvelope[] {
+    return [...infoSpy.mock.calls, ...errorSpy.mock.calls].map(
+      (call) => call[0] as unknown as LogEnvelope,
+    );
+  }
+
+  it('every log line across a successful run lifecycle carries the same traceId and a real event name', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(agentFixture);
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    secretsMock.getAnthropicKey.mockResolvedValue('sk-ant-key');
+    anthropicClient.messages.create.mockResolvedValue(anthropicResponse);
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+    runRepoMock.append.mockResolvedValue(undefined);
+
+    const infoSpy = vi.spyOn(logger, 'info');
+    const errorSpy = vi.spyOn(logger, 'error');
+
+    await executeRun({ agentId: AGENT_ID });
+
+    // Ground truth: the traceId actually persisted on the Run record — the
+    // same identifier an operator would filter CloudWatch Logs Insights on.
+    const persistedTraceId = runRepoMock.append.mock.calls[0]![0].traceId;
+    expect(persistedTraceId).toEqual(expect.stringMatching(/^local-/));
+
+    const envelopes = loggedEnvelopes(infoSpy, errorSpy);
+    // A single run emits several distinct lifecycle events, not just one —
+    // propagation across the whole timeline is what AC-1.1 requires.
+    expect(envelopes.map((e) => e.event)).toEqual([
+      'agent.run.started',
+      'agent.run.config_loaded',
+      'agent.run.spend_reserved',
+      'agent.run.secret_fetched',
+      'agent.run.anthropic_call',
+      'agent.run.spend_finalized',
+      'agent.run.persisted',
+      'agent.run.completed',
+    ]);
+    for (const envelope of envelopes) {
+      expect(envelope.traceId).toBe(persistedTraceId);
+      expect(envelope.agentId).toBe(AGENT_ID);
+      expect(envelope.event.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('the error-path log line (agent.run.failed) is not dropped from the traced timeline', async () => {
+    agentRepoMock.getAgentById.mockResolvedValue(agentFixture);
+    agentRepoMock.reserveSpend.mockResolvedValue(undefined);
+    secretsMock.getAnthropicKey.mockResolvedValue('sk-ant-key');
+    anthropicClient.messages.create.mockRejectedValue(new Error('API down'));
+    agentRepoMock.finalizeSpend.mockResolvedValue(undefined);
+    runRepoMock.append.mockResolvedValue(undefined);
+
+    const infoSpy = vi.spyOn(logger, 'info');
+    const errorSpy = vi.spyOn(logger, 'error');
+
+    const result = await executeRun({ agentId: AGENT_ID });
+    expect(result.status).toBe('error');
+
+    const persistedTraceId = runRepoMock.append.mock.calls[0]![0].traceId;
+    const envelopes = loggedEnvelopes(infoSpy, errorSpy);
+    const failedEnvelope = envelopes.find((e) => e.event === 'agent.run.failed');
+    // Confirms the error leg specifically (not just the happy-path info lines)
+    // carries the run's traceId — the equivalent of middleware's
+    // `http.request.error` leg, but for a run's own lifecycle.
+    expect(failedEnvelope).toBeDefined();
+    expect(failedEnvelope!.traceId).toBe(persistedTraceId);
+    for (const envelope of envelopes) {
+      expect(envelope.traceId).toBe(persistedTraceId);
+    }
   });
 });

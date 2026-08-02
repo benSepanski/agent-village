@@ -11,6 +11,7 @@ Two tiers of spec live here:
 | ------------------------ | ------------------------------------ | --------------- |
 | `smoke.spec.ts`          | nothing (unauthenticated SPA)        | yes             |
 | `mvp.spec.ts`            | nothing — authed portion runs mocked | yes             |
+| `spend.spec.ts`          | nothing — authed, runs mocked        | yes             |
 | `phase3-sandbox.spec.ts` | a **deployed AWS environment**       | no — opt-in     |
 
 ## Authenticated tests (`fixtures/auth.ts`)

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { UserId } from './ids.js';
+import { MAX_BUDGET_USD } from './spend-limits.js';
 
 export const UserSchema = z.object({
   cognitoSub: UserId,
@@ -7,8 +8,9 @@ export const UserSchema = z.object({
   displayName: z.string().min(1).max(120),
   // Unset = no user-level monthly cap (preserves current behavior). Never
   // negative/zero — a budget of $0 would mean "never spend," which is
-  // expressed by simply not setting the field.
-  userMonthlyBudgetUsd: z.number().positive().optional(),
+  // expressed by simply not setting the field. `.finite()` + `.max()` reject
+  // Infinity/NaN and cap the value — see spend-limits.ts.
+  userMonthlyBudgetUsd: z.number().positive().finite().max(MAX_BUDGET_USD).optional(),
   createdAt: z.string().datetime(),
 });
 export type User = z.infer<typeof UserSchema>;
@@ -19,7 +21,9 @@ export type User = z.infer<typeof UserSchema>;
  * while omitting the key entirely leaves the existing cap untouched.
  */
 export const UpdateUserInput = z
-  .object({ userMonthlyBudgetUsd: z.number().positive().nullable() })
+  .object({
+    userMonthlyBudgetUsd: z.number().positive().finite().max(MAX_BUDGET_USD).nullable(),
+  })
   .partial();
 export type UpdateUserInput = z.infer<typeof UpdateUserInput>;
 

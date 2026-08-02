@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { AgentId, UserId } from './ids.js';
 import { ApplicationManifest } from './manifest.js';
+import { MAX_BUDGET_USD } from './spend-limits.js';
+
+// `.finite()` + `.max()` reject Infinity/NaN and cap the value — see
+// spend-limits.ts for why (Infinity round-trips to `null` over JSON and
+// breaks DynamoDB marshalling; NaN passes plain `z.number()` unchecked).
+const SpendLimitUsd = z.number().positive().finite().max(MAX_BUDGET_USD);
 
 // Keep in sync with the pricing table in @agent-village/domain cost.ts —
 // the metering gateway rejects (400) any model id it cannot price.
@@ -48,7 +54,7 @@ export const AgentSchema = z.object({
   model: AnthropicModel,
   systemPrompt: z.string().min(1).max(PROMPT_MAX),
   schedule: z.string().min(1).nullable(),
-  spendLimitUsd: z.number().positive(),
+  spendLimitUsd: SpendLimitUsd,
   spendUsedUsd: z.number().nonnegative(),
   anthropicSecretArn: z.string().min(1),
   status: AgentStatus,
@@ -71,7 +77,7 @@ export const CreateAgentInput = z.object({
   model: AnthropicModel,
   systemPrompt: z.string().min(1).max(PROMPT_MAX),
   schedule: z.string().min(1).nullable(),
-  spendLimitUsd: z.number().positive(),
+  spendLimitUsd: SpendLimitUsd,
   anthropicApiKey: z.string().min(1),
   status: AgentStatus.optional(),
   manifest: ApplicationManifest.nullable().optional(),
@@ -84,7 +90,7 @@ export const UpdateAgentInput = z
     model: AnthropicModel,
     systemPrompt: z.string().min(1).max(PROMPT_MAX),
     schedule: z.string().min(1).nullable(),
-    spendLimitUsd: z.number().positive(),
+    spendLimitUsd: SpendLimitUsd,
     anthropicApiKey: z.string().min(1),
     status: AgentStatus,
     manifest: ApplicationManifest.nullable(),

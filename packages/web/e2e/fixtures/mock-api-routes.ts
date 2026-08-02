@@ -1,20 +1,24 @@
 import type { Page, Route } from '@playwright/test';
 import {
+  budgetUsedUsd,
   createAgent,
   createRun,
   deleteAgent,
   listRuns,
   updateAgent,
+  updateUserBudget,
   type MockApiState,
 } from './mock-api-state.js';
 
 /** GET /me/budget response shape (routes/agents.$agentId.tsx BudgetStatus). */
 function budgetStatus(state: MockApiState) {
+  const limitUsd = state.budgetLimitUsd;
+  const usedUsd = budgetUsedUsd(state);
   return {
     month: new Date().toISOString().slice(0, 7),
-    limitUsd: null,
-    usedUsd: 0,
-    remainingUsd: null,
+    limitUsd,
+    usedUsd,
+    remainingUsd: limitUsd === null ? null : Math.max(0, limitUsd - usedUsd),
     agents: [...state.agents.values()].map((a) => ({
       agentId: a.id,
       name: a.name,
@@ -106,6 +110,15 @@ async function handleSpend(route: Route, state: MockApiState, agentId: string): 
 }
 
 async function handleMeBudget(route: Route, state: MockApiState): Promise<void> {
+  const method = route.request().method();
+  if (method === 'PATCH') {
+    const patch = route.request().postDataJSON() as { userMonthlyBudgetUsd?: number | null };
+    if (Object.prototype.hasOwnProperty.call(patch, 'userMonthlyBudgetUsd')) {
+      updateUserBudget(state, patch.userMonthlyBudgetUsd ?? null);
+    }
+    await route.fulfill({ json: { ownerSub: state.ownerSub } });
+    return;
+  }
   await route.fulfill({ json: budgetStatus(state) });
 }
 

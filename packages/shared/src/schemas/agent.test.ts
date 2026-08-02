@@ -6,6 +6,7 @@ import {
   CreateAgentInput,
   UpdateAgentInput,
 } from './agent.js';
+import { MAX_BUDGET_USD } from './spend-limits.js';
 
 const validAgent = {
   id: '01HZ1234567890ABCDEFGHJKMN',
@@ -61,6 +62,28 @@ describe('AgentSchema', () => {
     expect(() => AgentSchema.parse({ ...validAgent, spendLimitUsd: -1 })).toThrow();
   });
 
+  // Finding C (1.0-verdict.md punch-list #3): `.positive()` alone accepts
+  // Infinity and NaN, and has no upper bound.
+  it('rejects Infinity, -Infinity, and NaN spend limits', () => {
+    expect(() => AgentSchema.parse({ ...validAgent, spendLimitUsd: Infinity })).toThrow();
+    expect(() => AgentSchema.parse({ ...validAgent, spendLimitUsd: -Infinity })).toThrow();
+    expect(() => AgentSchema.parse({ ...validAgent, spendLimitUsd: NaN })).toThrow();
+  });
+
+  it('rejects a spend limit above the cap but accepts one at the cap', () => {
+    expect(() =>
+      AgentSchema.parse({ ...validAgent, spendLimitUsd: MAX_BUDGET_USD + 0.01 }),
+    ).toThrow();
+    const parsed = AgentSchema.parse({ ...validAgent, spendLimitUsd: MAX_BUDGET_USD });
+    expect(parsed.spendLimitUsd).toBe(MAX_BUDGET_USD);
+  });
+
+  it('round-trips a valid spend limit through JSON without loss', () => {
+    const parsed = AgentSchema.parse(validAgent);
+    const roundTripped = AgentSchema.parse(JSON.parse(JSON.stringify(parsed)));
+    expect(roundTripped.spendLimitUsd).toBe(validAgent.spendLimitUsd);
+  });
+
   it('rejects names longer than 80 chars', () => {
     expect(() => AgentSchema.parse({ ...validAgent, name: 'a'.repeat(81) })).toThrow();
   });
@@ -99,6 +122,23 @@ describe('CreateAgentInput', () => {
     const { anthropicApiKey: _unused, ...rest } = validCreate;
     expect(() => CreateAgentInput.parse(rest)).toThrow();
   });
+
+  it('rejects Infinity, -Infinity, NaN, and zero/negative spend limits', () => {
+    expect(() => CreateAgentInput.parse({ ...validCreate, spendLimitUsd: Infinity })).toThrow();
+    expect(() => CreateAgentInput.parse({ ...validCreate, spendLimitUsd: -Infinity })).toThrow();
+    expect(() => CreateAgentInput.parse({ ...validCreate, spendLimitUsd: NaN })).toThrow();
+    expect(() => CreateAgentInput.parse({ ...validCreate, spendLimitUsd: 0 })).toThrow();
+    expect(() => CreateAgentInput.parse({ ...validCreate, spendLimitUsd: -1 })).toThrow();
+  });
+
+  it('rejects a spend limit above the cap but accepts one at the cap', () => {
+    expect(() =>
+      CreateAgentInput.parse({ ...validCreate, spendLimitUsd: MAX_BUDGET_USD + 0.01 }),
+    ).toThrow();
+    expect(
+      CreateAgentInput.parse({ ...validCreate, spendLimitUsd: MAX_BUDGET_USD }).spendLimitUsd,
+    ).toBe(MAX_BUDGET_USD);
+  });
 });
 
 describe('UpdateAgentInput', () => {
@@ -134,6 +174,19 @@ describe('UpdateAgentInput', () => {
 
   it('rejects a malformed manifest', () => {
     expect(() => UpdateAgentInput.parse({ manifest: { ...validManifest, image: '' } })).toThrow();
+  });
+
+  it('rejects Infinity, -Infinity, and NaN in a spend-limit patch', () => {
+    expect(() => UpdateAgentInput.parse({ spendLimitUsd: Infinity })).toThrow();
+    expect(() => UpdateAgentInput.parse({ spendLimitUsd: -Infinity })).toThrow();
+    expect(() => UpdateAgentInput.parse({ spendLimitUsd: NaN })).toThrow();
+  });
+
+  it('rejects a spend-limit patch above the cap but accepts one at the cap', () => {
+    expect(() => UpdateAgentInput.parse({ spendLimitUsd: MAX_BUDGET_USD + 1 })).toThrow();
+    expect(UpdateAgentInput.parse({ spendLimitUsd: MAX_BUDGET_USD })).toEqual({
+      spendLimitUsd: MAX_BUDGET_USD,
+    });
   });
 
   it('strips the internal sandboxTaskDef cache from a user patch', () => {

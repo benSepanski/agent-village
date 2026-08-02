@@ -47,7 +47,7 @@ interface BudgetStatus {
   agents: AgentBudgetFigure[];
 }
 
-function UserBudgetSection() {
+export function UserBudgetSection() {
   const qc = useQueryClient();
   const { data } = useQuery<BudgetStatus>({
     queryKey: ['me', 'budget'],
@@ -58,19 +58,28 @@ function UserBudgetSection() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['me', 'budget'] }),
   });
   if (!data) return null;
+  // updateBudget.error (rendered below) is the surface for failures here, so
+  // mutateAsync's rejection is swallowed rather than re-thrown into
+  // UserBudgetForm's unguarded `await onSave(...)`.
+  const savePatch = async (patch: UpdateUserInputType): Promise<void> => {
+    try {
+      await updateBudget.mutateAsync(patch);
+    } catch {
+      // handled above via updateBudget.error
+    }
+  };
   return (
     <>
       <UserBudget limitUsd={data.limitUsd} usedUsd={data.usedUsd} />
       <UserBudgetForm
         initialLimitUsd={data.limitUsd}
         busy={updateBudget.isPending}
-        onSave={async (userMonthlyBudgetUsd) => {
-          await updateBudget.mutateAsync({ userMonthlyBudgetUsd });
-        }}
-        onClear={async () => {
-          await updateBudget.mutateAsync({ userMonthlyBudgetUsd: null });
-        }}
+        onSave={(userMonthlyBudgetUsd) => savePatch({ userMonthlyBudgetUsd })}
+        onClear={() => savePatch({ userMonthlyBudgetUsd: null })}
       />
+      {updateBudget.error ? (
+        <p role="alert">Failed: {(updateBudget.error as Error).message}</p>
+      ) : null}
     </>
   );
 }
@@ -199,7 +208,7 @@ export function AgentDetailPage() {
   );
 }
 
-function RunNowSection({ agentId }: { agentId: string }) {
+export function RunNowSection({ agentId }: { agentId: string }) {
   const navigate = useNavigate();
   const runNow = useMutation({
     mutationFn: (opts: { dryRun: boolean }) =>
@@ -208,7 +217,13 @@ function RunNowSection({ agentId }: { agentId: string }) {
       navigate({ to: '/agents/$agentId/runs/$runId', params: { agentId, runId: res.runId } }),
   });
   return (
-    <RunControls busy={runNow.isPending} onRun={(opts) => runNow.mutate({ dryRun: opts.dryRun })} />
+    <>
+      <RunControls
+        busy={runNow.isPending}
+        onRun={(opts) => runNow.mutate({ dryRun: opts.dryRun })}
+      />
+      {runNow.error ? <p role="alert">Failed: {(runNow.error as Error).message}</p> : null}
+    </>
   );
 }
 
