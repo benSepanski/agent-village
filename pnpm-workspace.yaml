@@ -1,4 +1,4 @@
-packages:
-  - 'packages/*'
-  - 'tools/*'
-  - 'tests/*'
+# Marks this directory as the pnpm root. Without it, pnpm walks up and adopts an
+# enclosing workspace — which happens whenever this repo is checked out as a nested
+# git worktree.
+packages: []

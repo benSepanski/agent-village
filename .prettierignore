@@ -1,14 +1,4 @@
-# Generated / vendored files prettier should not touch.
-# `.gitignore` is already passed via `--ignore-path`, but the lockfiles are committed.
+node_modules/
+docs/legacy/
 pnpm-lock.yaml
-examples/gmail-agent/package-lock.json
-
-# Build artifacts (also in .gitignore but listed here for clarity).
-**/dist/
-**/cdk.out/
-**/coverage/
-**/playwright-report/
-**/.turbo/
-
-# Local agent-harness config (Claude Code worktree settings, etc.).
 .claude/

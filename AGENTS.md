@@ -1,69 +1,71 @@
 # AGENTS.md
 
-This file is the **map**. Detailed docs live in [`docs/`](docs/) — each one answers a single question.
+This file is the **map**. It is short on purpose — every detail lives in a linked doc that answers
+one question. Read this, then jump.
 
-## What this repo is
+## What this repo is right now
 
-Agent Village: personal AWS-hosted scheduler for autonomous AI agents. Users sign in, configure agents (Anthropic key, spend limit, schedule, scoped tools), the system runs them, and the UI shows the results.
+A **design repository**. There is no implementation: the previous system was scrapped and archived
+under [docs/legacy/v0/](docs/legacy/v0/). What we intend to build is sketched in
+[README.md](README.md); what we have actually committed to lives in [docs/specs/](docs/specs/).
+
+**No code lands without an Accepted spec.** If you are asked to implement something and no spec
+covers it, the correct move is to say so and work on the spec instead.
+
+## How work happens
+
+### Outer loop — specs
+
+1. The owner and an agent iterate on a design spec until it is precise enough to build against.
+2. The spec is Accepted. It is now the design target: terminology, guarantees, and non-goals in it
+   are binding.
+3. The spec is built via the inner loop, and is either completed, or found nonviable / to have
+   unanticipated issues.
+4. Either way, the agent **reports the outcome and asks the owner for the next spec.** Agents do not
+   invent the next spec unilaterally.
+
+Between those steps, QA is the default activity: QA a milestone, QA a spec, or improve the docs.
+
+### Inner loop — building an Accepted spec
+
+Decompose into milestones → execute a milestone → QA that milestone → QA the whole spec against its
+criteria → next milestone, or exit to the outer loop.
+
+Guides for every step: [docs/dev/workflows/](docs/dev/workflows/).
+
+## Non-negotiables
+
+| Rule                                                                                                                          | Detail                                                     |
+| ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| **VCS records history — comments and docs do not.** No commented-out code, no changelogs in source, no "changed X on <date>". | [ADR-0002](docs/adr/0002-history-over-commentary.md)       |
+| **Auditability is a requirement of every component**, not a later feature.                                                    | [ADR-0003](docs/adr/0003-auditability-is-a-requirement.md) |
+| **Every large or cross-cutting decision gets an ADR** before it is treated as settled.                                        | [write-an-adr](docs/dev/workflows/write-an-adr.md)         |
+| **One doc answers one question, on one screen.** New knowledge is a new doc, linked from the router.                          | [doc-system](docs/dev/doc-system.md)                       |
+| **The harness wins over prose.** Never weaken a check to make it pass; fix the work or raise an ADR.                          | [design-principles](docs/dev/design-principles.md)         |
+| **Facts live in the repo**, not in chat or memory. If it matters, write it where it belongs.                                  | [doc-system](docs/dev/doc-system.md)                       |
 
 ## Where to go
 
-| You want to                                                    | Go to                                                                          |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Find the right doc for any question                            | [docs/README.md](docs/README.md)                                               |
-| Build an application **on** the platform (external repo)       | [docs/app-development.md](docs/app-development.md)                             |
-| Understand the runtime topology                                | [docs/architecture/topology.md](docs/architecture/topology.md)                 |
-| Find the code for a given concern                              | [docs/architecture/codebase-map.md](docs/architecture/codebase-map.md)         |
-| See how key guarantees are enforced (cost, auth, isolation, …) | [docs/key-properties/](docs/key-properties/README.md)                          |
-| See what's allowed to import from what                         | [docs/architecture/layered-packages.md](docs/architecture/layered-packages.md) |
-| Know what you may / must ask about / must never do             | [docs/permissions/](docs/permissions/)                                         |
-| Add a Lambda / route / etc.                                    | [docs/playbooks/](docs/playbooks/)                                             |
-| See past architectural decisions                               | [docs/adr/](docs/adr/)                                                         |
-| See where the project is going / the next goal                 | [docs/roadmap.md](docs/roadmap.md)                                             |
-| Pick up or write an execution plan                             | [docs/phases/](docs/phases/)                                                   |
-| Leave / read informal agent working notes                      | [docs/notes/](docs/notes/)                                                     |
+| You want to                                         | Go to                                                                                                                         |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Find the doc for any question                       | [docs/README.md](docs/README.md)                                                                                              |
+| Write or revise a design spec                       | [docs/dev/workflows/author-a-spec.md](docs/dev/workflows/author-a-spec.md)                                                    |
+| Break an Accepted spec into milestones              | [docs/dev/workflows/decompose-into-milestones.md](docs/dev/workflows/decompose-into-milestones.md)                            |
+| Build a milestone                                   | [docs/dev/workflows/execute-a-milestone.md](docs/dev/workflows/execute-a-milestone.md)                                        |
+| QA a milestone or a spec                            | [docs/dev/workflows/qa-a-milestone.md](docs/dev/workflows/qa-a-milestone.md), [qa-a-spec.md](docs/dev/workflows/qa-a-spec.md) |
+| Record a decision                                   | [docs/adr/](docs/adr/)                                                                                                        |
+| Know what "AI-native / modular / simple" means here | [docs/dev/design-principles.md](docs/dev/design-principles.md)                                                                |
+| Know where a piece of writing belongs               | [docs/dev/doc-system.md](docs/dev/doc-system.md)                                                                              |
+| Leave scratch notes for the next session            | [docs/ai/](docs/ai/)                                                                                                          |
+| Run the checks                                      | [docs/dev/README.md](docs/dev/README.md)                                                                                      |
 
-## The shape of the project (one screen)
-
-- **9 packages** under `packages/`, layered: `shared ← domain ← data ← services ← {api, runner, cli}`; `web ← shared`; `infra ← shared`.
-- **Dependency graph is mechanically enforced** by `dependency-cruiser`. Cross-edges fail CI.
-- **Lint hard bounds are errors, never warnings**: complexity ≤10, function ≤50 lines, file ≤300 lines, params ≤4, statements ≤15, max-depth 4.
-- **Structured logs only**: `logger.x({ event: '<closed-enum>', ...payload })`. Free-form strings are blocked by lint.
-- **Schemas at every trust boundary**: Lambda handlers must `.parse(...)` input through a Zod schema.
-
-## How the harness expects you to work
-
-The harness — linters, schemas, dependency-cruiser, hooks, CI — is the primary way correctness is enforced. AGENTS.md and `docs/` exist to help you, but if the harness disagrees with prose, the harness wins. Operating rules:
-
-- **Mechanism beats memory.** Quality is enforced by tools, not by remembering this file. **Never edit lint, type-check, dependency-cruiser, or CI config to silence a violation** — fix the code, or raise an ADR if the rule itself is wrong.
-- **Tests and schemas are ground truth; prose rots.** Prefer adding a Zod schema, test, or ADR over a paragraph that _re-describes the code_. This is about redundant description, not about forward-looking material: roadmaps, execution plans, and agent working notes are wanted and have homes — write direction in [docs/roadmap.md](docs/roadmap.md), ordered plans in [docs/phases/](docs/phases/), and session handoffs in [docs/notes/](docs/notes/). Don't bury future goals in a commit message where the next agent won't find them.
-- **Iterative disclosure.** Each doc answers one question on one screen — don't sprawl AGENTS.md. New knowledge goes in a new doc linked from [docs/README.md](docs/README.md).
-- **Fast loops over slow ones.** Run `pnpm lint` / `pnpm typecheck` / `pnpm test` locally — don't push to find out CI says no.
-- **Plan, then verify.** For non-trivial work, sketch the change before executing. Compiling is not "working" — run the relevant tests (and `pnpm e2e` for UI) before declaring it done, or say explicitly in the PR what you couldn't verify.
-- **Single source of truth lives in the repo.** Facts that matter belong in code, schemas, tests, ADRs, or `docs/` — not in chat or memory.
-
-Full discussion of these principles (read only if designing new harness pieces or debating a rule): [docs/conventions/harness-engineering.md](docs/conventions/harness-engineering.md).
-
-## Commands you'll use
-
-**First thing in a fresh worktree, always:** `pnpm install`. It pulls **all** dependencies — including the dev tools the git hooks invoke (`lint-staged`, `husky`, `eslint`, `prettier`, `dependency-cruiser`). Skip this and your first `git commit` fails with `Command "lint-staged" not found`. pnpm installs devDependencies by default; do **not** pass `--prod` or set `NODE_ENV=production` locally. The hooks also require Node ≥22 (see [`.nvmrc`](.nvmrc)) — `nvm use` or `mise use` before installing.
+## Commands
 
 ```bash
-pnpm install                     # bootstrap — run this first; installs devDependencies (required for hooks)
-pnpm local:up                    # docker compose + LocalStack + DynamoDB Local
-pnpm doctor:local                # green/red status table
-pnpm dev                         # all packages in dev mode
-pnpm lint                        # everything
-pnpm typecheck                   # everything
-pnpm test                        # everything
-pnpm e2e                         # playwright
-pnpm --filter @agent-village/infra synth:dev
+pnpm install   # once per fresh worktree
+pnpm check     # format check + relative-link check — the whole harness today
+pnpm format    # fix formatting
 ```
 
-## Three-tier permissions (summary)
-
-- **Always** — see [docs/permissions/always.md](docs/permissions/always.md).
-- **Ask first** — see [docs/permissions/ask-first.md](docs/permissions/ask-first.md).
-- **Never** — see [docs/permissions/never.md](docs/permissions/never.md).
-
-When in doubt, treat it as **Ask first**.
+There is no build, no test suite, and no deploy — because there is no code. When a spec introduces
+one, it is documented in [docs/dev/README.md](docs/dev/README.md) and enforced in CI.

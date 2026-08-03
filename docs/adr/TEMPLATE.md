@@ -1,23 +1,31 @@
 # ADR NNNN: <short title>
 
 Date: YYYY-MM-DD
-Status: Proposed | Accepted | Superseded by ADR-XXXX
+Status: Proposed | Accepted | Superseded by ADR-NNNN | Deprecated
+Driver: <spec, milestone, or "repo-wide">
 
 ## Context
 
-What problem is this decision trying to solve? What's the situation that
-makes a choice necessary?
+What situation forces a choice? What constraints are real, and which are assumed? State the facts a
+reader needs to judge the decision without having been in the room.
 
 ## Decision
 
-What did we decide, in plain words. Be specific.
+What we decided, in plain words, specific enough to be checked against the code.
+
+## Alternatives considered
+
+| Alternative | Why not |
+| ----------- | ------- |
+|             |         |
 
 ## Consequences
 
-What becomes easier? What becomes harder? What's the explicit trade-off
-this decision accepts?
+What gets easier. What gets harder. What we accept as the cost. What would make us revisit this —
+state the observable trigger, not a vague "if it becomes a problem".
 
-## Status
+## Audit surface
 
-Accepted | Superseded | Deprecated. ADRs are append-only — never edit an
-existing one. Write a new ADR that supersedes it.
+What this decision implies for auditability: what is recorded, by whom, retained how long. Write
+"none" only if the decision genuinely touches no observable behaviour, and say why.
+See [0003-auditability-is-a-requirement.md](0003-auditability-is-a-requirement.md).

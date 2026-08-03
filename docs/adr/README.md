@@ -1,17 +1,32 @@
 # Architecture Decision Records
 
-Append-only log of architectural decisions. Never edit an existing ADR — write a new one that supersedes it.
+An append-only log of decisions that were expensive to make and would be expensive to reverse.
+Format: [adr.github.io](https://adr.github.io).
 
-| ADR                                      | Title                                                            | Status   |
-| ---------------------------------------- | ---------------------------------------------------------------- | -------- |
-| [0001](0001-typescript-cdk-dynamodb.md)  | TypeScript everywhere, AWS CDK, DynamoDB single-table            | Accepted |
-| [0002](0002-fargate-sandbox-runs.md)     | Sandboxed application runs on Fargate + S3 workspaces            | Accepted |
-| [0003](0003-egress-proxy-sidecar.md)     | Egress proxy as a per-run Fargate sidecar                        | Accepted |
-| [0004](0004-metered-anthropic-access.md) | Metered Anthropic access for sandbox runs via a platform gateway | Accepted |
+**Never edit an accepted ADR.** Write a new one that supersedes it. The single exception is the
+`Status:` line of the superseded ADR, which is updated to point at its successor.
 
-## Adding a new ADR
+| ADR                                           | Title                         | Status   |
+| --------------------------------------------- | ----------------------------- | -------- |
+| [0001](0001-docs-first-spec-driven-reset.md)  | Docs-first, spec-driven reset | Accepted |
+| [0002](0002-history-over-commentary.md)       | History over commentary       | Accepted |
+| [0003](0003-auditability-is-a-requirement.md) | Auditability is a requirement | Accepted |
 
-1. Copy [TEMPLATE.md](TEMPLATE.md) → `NNNN-<short-slug>.md` (next number).
-2. Fill in Context, Decision, Consequences.
+## When to write one
+
+Write an ADR when a choice constrains future work, is expensive to reverse, or would make a future
+reader ask "why on earth is it like this?" — a runtime, a storage model, a trust boundary, a
+protocol, a repo-wide rule. Do not write one for choices that are cheap to change.
+
+If you find yourself defending a decision in a PR comment, that is the signal: the argument belongs
+in an ADR where the next agent will find it.
+
+## How to add one
+
+1. Copy [TEMPLATE.md](TEMPLATE.md) to `NNNN-<kebab-slug>.md`, using the next free number.
+2. Fill in Context, Decision, Consequences, Status. Be specific; name the alternatives you rejected
+   and why.
 3. Add a row to the table above.
-4. If this ADR supersedes an existing one, the existing one's Status becomes `Superseded by ADR-NNNN`. (Edit the _status line only_ — that's the one exception to the append-only rule.)
+4. If it supersedes an existing ADR, set that ADR's `Status:` to `Superseded by ADR-NNNN`.
+
+Full guide: [../dev/workflows/write-an-adr.md](../dev/workflows/write-an-adr.md).

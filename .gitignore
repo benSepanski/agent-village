@@ -1,50 +1,11 @@
-# Dependencies / package managers
+# Dependencies
 node_modules/
 .pnpm-store/
-.pnp.*
-.yarn-integrity
-.yarn/cache
-.yarn/install-state.gz
-
-# Build output
-dist/
-build/
-out/
-.turbo/
-*.tsbuildinfo
-
-# Test artifacts
-coverage/
-.nyc_output/
-playwright-report/
-test-results/
-.playwright/
-
-# Caches
-.cache/
-.eslintcache
-.stylelintcache
-.prettiercache
-.parcel-cache/
-
-# CDK
-cdk.out/
-cdk.context.json
-.cdk.staging/
-
-# AWS / SAM
-.aws-sam/
-
-# Local dev
-.localstack/
-.dynamodb-data/
 
 # Environment files (NEVER commit secrets)
 .env
 .env.local
 .env.*.local
-.env.development.local
-.env.production.local
 
 # Secrets / credentials — defense in depth
 *.pem
@@ -53,14 +14,9 @@ cdk.context.json
 *.p12
 *.pfx
 secrets/
-!packages/data/src/secrets/
 secrets.json
 credentials.json
 .aws/credentials
-
-# Packaging artifacts
-*.tgz
-*.zip
 
 # Editor / IDE
 .vscode/
@@ -73,14 +29,11 @@ credentials.json
 .DS_Store
 ._*
 Thumbs.db
-ehthumbs.db
 
-# Logs / PIDs
+# Logs
 *.log
-*.pid
 npm-debug.log*
 pnpm-debug.log*
-yarn-error.log
 
 # Temp
 tmp/
