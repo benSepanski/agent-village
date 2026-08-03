@@ -3,11 +3,10 @@
 A toolkit for building agentic applications: give an agent real capabilities and real data, inside
 a boundary you can describe, audit, and afford.
 
-> **Status: design phase. No implementation exists.**
-> This repository currently contains documentation only. The previous implementation was scrapped
-> and archived under [docs/legacy/v0/](docs/legacy/v0/). Nothing is built until a design spec in
-> [docs/specs/](docs/specs/) is accepted. Everything below is **intent**, not a description of
-> working software.
+> **Status: design phase.** The previous implementation was scrapped and archived under
+> [docs/legacy/v0/](docs/legacy/v0/), and no code has landed since. Implementation is gated on an
+> accepted design spec in [docs/specs/](docs/specs/); the first is in draft. Everything below is
+> **intent**, not a description of working software.
 
 ## What we intend to build
 
