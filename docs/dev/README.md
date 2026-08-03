@@ -19,9 +19,9 @@ pnpm install
 | `pnpm format:check` | Fail if formatting is off                       |
 | `pnpm check:links`  | Fail if a relative Markdown link points nowhere |
 
-There is no build, no test suite, and no deploy, because there is no code. When a spec introduces
-one, add it here and to `.github/workflows/docs.yml` in the same change — a check that is not in CI
-is a suggestion.
+There is no build, test suite, or deploy yet — the first spec has not been built. When one
+introduces them, add them here and to `.github/workflows/docs.yml` in the same change — a check that
+is not in CI is a suggestion.
 
 ## Layout
 

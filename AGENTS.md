@@ -3,11 +3,12 @@
 This file is the **map**. It is short on purpose — every detail lives in a linked doc that answers
 one question. Read this, then jump.
 
-## What this repo is right now
+## Where the project is right now
 
-A **design repository**. There is no implementation: the previous system was scrapped and archived
-under [docs/legacy/v0/](docs/legacy/v0/). What we intend to build is sketched in
-[README.md](README.md); what we have actually committed to lives in [docs/specs/](docs/specs/).
+**Design phase.** The previous implementation was scrapped and archived under
+[docs/legacy/v0/](docs/legacy/v0/), and no code has landed since. What we intend to build is
+sketched in [README.md](README.md); what we have actually committed to lives in
+[docs/specs/](docs/specs/).
 
 **No code lands without an Accepted spec.** If you are asked to implement something and no spec
 covers it, the correct move is to say so and work on the spec instead.
@@ -67,5 +68,5 @@ pnpm check     # format check + relative-link check — the whole harness today
 pnpm format    # fix formatting
 ```
 
-There is no build, no test suite, and no deploy — because there is no code. When a spec introduces
-one, it is documented in [docs/dev/README.md](docs/dev/README.md) and enforced in CI.
+There is no build, test suite, or deploy yet — the first spec has not been built. When one
+introduces them, they are documented in [docs/dev/README.md](docs/dev/README.md) and enforced in CI.

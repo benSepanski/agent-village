@@ -8,9 +8,9 @@ Specs are the only thing that authorizes implementation. No accepted spec, no co
 
 ## Index
 
-| Spec       | Title | Status |
-| ---------- | ----- | ------ |
-| _none yet_ |       |        |
+| Spec                                   | Title             | Status |
+| -------------------------------------- | ----------------- | ------ |
+| [0002](0002-agent-environment/spec.md) | agent-environment | Draft  |
 
 ## Layout
 
