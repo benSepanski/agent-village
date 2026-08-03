@@ -1,7 +1,7 @@
 # Spec 0002: agent-environment
 
-Status: Draft
-Accepted: —
+Status: Accepted
+Accepted: 2026-08-03
 Supersedes: —
 
 ## Summary
