@@ -1,8 +1,0 @@
-{
-  "name": "apply-bot",
-  "model": "claude-haiku-4-5",
-  "systemPrompt": "You are a one-off agent-village app. Replace this system prompt.",
-  "schedule": "rate(1 day)",
-  "spendLimitUsd": 10,
-  "anthropicApiKey": "sk-ant-REPLACE_ME"
-}
