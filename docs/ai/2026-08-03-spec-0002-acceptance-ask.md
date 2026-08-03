@@ -18,3 +18,9 @@ acting on that.
 Unresolved: the spec's eight Open Questions include two that ask for an owner ruling (`model.infer`
 spend-meter boundary; ADR-0003 retention-scope amendment). They live in the spec itself — nothing to
 duplicate here.
+
+Deferred observation: the routine prompt states `main` requires an approving review and a check
+named `lint_typecheck_test_synth`. On 2026-08-03, PR #39 squash-merged via the API with green
+`format_and_links` only — no review, no such check. Either the ruleset changed, it never matched
+these merges, or the automation token bypasses it silently. Owner should verify the branch
+protection on `main` does what they intend.
