@@ -2,6 +2,11 @@
 
 2026-08-03. Autonomous routine run.
 
+**Resolved 2026-08-03**: the owner accepted spec 0002 in this session; the spec header now reads
+`Status: Accepted`. The ask below is closed — do not re-send. Next step is decomposition
+([decompose-into-milestones](../dev/workflows/decompose-into-milestones.md)). The branch-protection
+observation at the bottom still stands.
+
 Repo state at this run: no open PRs; one spec, [0002-agent-environment](../specs/0002-agent-environment/spec.md),
 status `Draft` (merged in #38, 2026-08-03T01:43Z); no milestones anywhere; `docs/ai/` held only its
 README, so no prior ask was on record.
