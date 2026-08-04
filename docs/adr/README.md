@@ -11,6 +11,7 @@ Format: [adr.github.io](https://adr.github.io).
 | [0001](0001-docs-first-spec-driven-reset.md)  | Docs-first, spec-driven reset | Accepted |
 | [0002](0002-history-over-commentary.md)       | History over commentary       | Accepted |
 | [0003](0003-auditability-is-a-requirement.md) | Auditability is a requirement | Accepted |
+| [0004](0004-typescript-node-stack.md)         | TypeScript on Node stack      | Proposed |
 
 ## When to write one
 
