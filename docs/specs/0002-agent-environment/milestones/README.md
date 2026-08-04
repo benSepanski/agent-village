@@ -4,17 +4,17 @@ Decomposition of [spec 0002](../spec.md), per
 [decompose-into-milestones](../../../dev/workflows/decompose-into-milestones.md). Ordered by
 dependency; each milestone is buildable and checkable without the ones after it.
 
-| Milestone                                                   | Slice                                                                      | Status  | QA  |
-| ----------------------------------------------------------- | -------------------------------------------------------------------------- | ------- | --- |
-| [M1-walking-skeleton](M1-walking-skeleton.md)               | One environment, no network, one program-decided crossing, journaled       | Planned | —   |
-| [M2-topology-checker](M2-topology-checker.md)               | Every declaration the spec says to refuse is refused, with a reason        | Planned | —   |
-| [M3-volumes-and-activations](M3-volumes-and-activations.md) | Declared mounts enforced; session volumes reset; activations begin and end | Planned | —   |
-| [M4-wakeups-turns-leases](M4-wakeups-turns-leases.md)       | Wakeups start turns; the write lease serialises them; queueing is recorded | Planned | —   |
-| [M5-mediated-volumes](M5-mediated-volumes.md)               | Pinned read-only mounts; every change to a mediated volume is a crossing   | Planned | —   |
-| [M6-ingress-flows-taint](M6-ingress-flows-taint.md)         | An admitted message mints a flow and a taint set; refusals aggregate       | Planned | —   |
-| [M7-egress-decisions](M7-egress-decisions.md)               | Flow invariants, auth-environment deciders, deferral, at-most-once         | Planned | —   |
-| [M8-audit-stores-retention](M8-audit-stores-retention.md)   | Two stores, retention bounds, and reconstruction from one flow identifier  | Planned | —   |
-| [M9-driving-applications](M9-driving-applications.md)       | Mail, DM, and campaign fixtures run end to end on loopback, disconnected   | Planned | —   |
+| Milestone                                                   | Slice                                                                      | Status   | QA  |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------- | -------- | --- |
+| [M1-walking-skeleton](M1-walking-skeleton.md)               | One environment, no network, one program-decided crossing, journaled       | Complete | —   |
+| [M2-topology-checker](M2-topology-checker.md)               | Every declaration the spec says to refuse is refused, with a reason        | Planned  | —   |
+| [M3-volumes-and-activations](M3-volumes-and-activations.md) | Declared mounts enforced; session volumes reset; activations begin and end | Planned  | —   |
+| [M4-wakeups-turns-leases](M4-wakeups-turns-leases.md)       | Wakeups start turns; the write lease serialises them; queueing is recorded | Planned  | —   |
+| [M5-mediated-volumes](M5-mediated-volumes.md)               | Pinned read-only mounts; every change to a mediated volume is a crossing   | Planned  | —   |
+| [M6-ingress-flows-taint](M6-ingress-flows-taint.md)         | An admitted message mints a flow and a taint set; refusals aggregate       | Planned  | —   |
+| [M7-egress-decisions](M7-egress-decisions.md)               | Flow invariants, auth-environment deciders, deferral, at-most-once         | Planned  | —   |
+| [M8-audit-stores-retention](M8-audit-stores-retention.md)   | Two stores, retention bounds, and reconstruction from one flow identifier  | Planned  | —   |
+| [M9-driving-applications](M9-driving-applications.md)       | Mail, DM, and campaign fixtures run end to end on loopback, disconnected   | Planned  | —   |
 
 ## Coverage
 

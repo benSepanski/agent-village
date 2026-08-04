@@ -1,7 +1,7 @@
 # M1: Walking skeleton — declare, check, run, cross, record
 
 Spec: `../spec.md`
-Status: Planned
+Status: Complete
 Depends on: —
 
 ## Slice
@@ -62,10 +62,14 @@ it.
 
 ## Decisions needed
 
-- **Implementation language and runtime stack** — ADR required; constrains every later milestone.
-- **How the local channel between environment and bridge is carried** — the runtime interface
-  leaves it to the implementation; record the choice and why it is not routable in the ADR or the
-  milestone doc.
+- **Implementation language and runtime stack** — decided:
+  [ADR-0004](../../../adr/0004-typescript-node-stack.md), TypeScript on Node 22.
+- **How the local channel between environment and bridge is carried** — decided: a Unix domain
+  socket, created by the bridge process in a host directory bind-mounted into the environment at
+  `/bridge`. It is not routable because it is a filesystem object with no network address: it is
+  reachable only through the mounted path, from any network namespace or none, and the environment's
+  namespace has loopback only. A host-network TCP listener was rejected because it would be exactly
+  the routable channel the milestone warns against.
 
 ## Verification
 

@@ -5,10 +5,12 @@ one question. Read this, then jump.
 
 ## Where the project is right now
 
-**Design phase.** The previous implementation was scrapped and archived under
-[docs/legacy/v0/](docs/legacy/v0/), and no code has landed since. What we intend to build is
-sketched in [README.md](README.md); what we have actually committed to lives in
-[docs/specs/](docs/specs/).
+**Building spec 0002.** The previous implementation was scrapped and archived under
+[docs/legacy/v0/](docs/legacy/v0/); the reset is [ADR-0001](docs/adr/0001-docs-first-spec-driven-reset.md).
+What we intend to build is sketched in [README.md](README.md); what we have committed to lives in
+[docs/specs/](docs/specs/), and implementation of the accepted spec is underway in
+[packages/](packages/) — see the spec's
+[milestones](docs/specs/0002-agent-environment/milestones/README.md) for what exists.
 
 **No code lands without an Accepted spec.** If you are asked to implement something and no spec
 covers it, the correct move is to say so and work on the spec instead.
@@ -64,9 +66,9 @@ Guides for every step: [docs/dev/workflows/](docs/dev/workflows/).
 
 ```bash
 pnpm install   # once per fresh worktree
-pnpm check     # format check + relative-link check — the whole harness today
+pnpm check     # format + links + typecheck + lint + tests — everything CI runs
 pnpm format    # fix formatting
 ```
 
-There is no build, test suite, or deploy yet — the first spec has not been built. When one
-introduces them, they are documented in [docs/dev/README.md](docs/dev/README.md) and enforced in CI.
+Milestone fixture commands that need a Docker daemon are documented per milestone and in
+[docs/dev/README.md](docs/dev/README.md).

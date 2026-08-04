@@ -1,4 +1,4 @@
-name: Docs
+name: Checks
 
 on:
   pull_request:
@@ -23,7 +23,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9.15.0
+          version: 10.33.0
 
       - uses: actions/setup-node@v4
         with:
@@ -35,3 +35,27 @@ jobs:
       - run: pnpm format:check
 
       - run: pnpm check:links
+
+  package_checks:
+    name: typecheck_lint_test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm -r typecheck
+
+      - run: pnpm -r lint
+
+      - run: pnpm -r test

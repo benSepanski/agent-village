@@ -1,0 +1,24 @@
+{
+  "version": "m1",
+  "application": "m1-walking-skeleton",
+  "environment": {
+    "name": "probe",
+    "agent_instance": true,
+    "request_types": ["probe.echo"]
+  },
+  "bridge": {
+    "name": "probe-egress",
+    "direction": "egress",
+    "from": "probe",
+    "target": "network",
+    "request_types": [
+      {
+        "name": "probe.echo",
+        "fidelity": "parsed",
+        "content": "structured",
+        "retryable": true,
+        "policy": { "kind": "program", "max_message_bytes": 256 }
+      }
+    ]
+  }
+}

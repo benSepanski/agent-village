@@ -2,16 +2,16 @@
   "name": "agent-village",
   "version": "0.0.0",
   "private": true,
-  "description": "Design repository for agent-village. No implementation yet — see docs/specs/.",
+  "description": "agent-village: specs under docs/specs/, implementation under packages/.",
   "type": "module",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "check": "pnpm format:check && pnpm check:links",
+    "check": "pnpm format:check && pnpm check:links && pnpm -r typecheck && pnpm -r lint && pnpm -r test",
     "check:links": "node scripts/check-doc-links.mjs",
-    "format": "prettier --write \"**/*.{md,json,yml,yaml,mjs}\"",
-    "format:check": "prettier --check \"**/*.{md,json,yml,yaml,mjs}\""
+    "format": "prettier --write \"**/*.{md,json,yml,yaml,mjs,ts}\"",
+    "format:check": "prettier --check \"**/*.{md,json,yml,yaml,mjs,ts}\""
   },
   "devDependencies": {
     "prettier": "3.4.2"
