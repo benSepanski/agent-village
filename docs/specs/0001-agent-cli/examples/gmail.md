@@ -316,4 +316,4 @@ both. That is G17, and the refresh exchange carries the highest-value secret in 
 | Why is `cli` preferred where a binary exists?                     | [github](./github.md)                                          |
 | What are the rendering rules, guarantees and criteria cited here? | [spec.md](../spec.md)                                          |
 | Which milestone builds the one `http` target that ships?          | [M4](../milestones/M4-slack-http-target.md)                    |
-| Why is the emitter what it is?                                    | [ADR-0004](../../../adr/0004-typescript-node-for-agent-cli.md) |
+| Why is the emitter what it is?                                    | [ADR-0006](../../../adr/0006-typescript-node-for-agent-cli.md) |

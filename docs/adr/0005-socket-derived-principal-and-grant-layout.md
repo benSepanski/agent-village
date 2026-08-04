@@ -30,7 +30,7 @@ This is more than a naming choice. What follows from it:
 - **Correlation identifiers for a whole session come from the path.** `app`, `instance` and `session` are read from the directory that admitted the connection rather than minted by a process that cannot observe when a sandbox starts or stops. A fabricated session id is not a thing this design is able to produce.
 - **Splitting into one auth process per credential is a deployment change, not a change to the wire contract.** Each process serves the sockets it owns and derives the same principal from the same paths, with no envelope field to renegotiate. That is what makes deferring the auth process's own confinement affordable rather than reckless (Q9).
 
-The derived principal is enforced in types rather than by convention: on the stack [ADR-0004](0004-typescript-node-for-agent-cli.md) chooses, an event carrying neither principal nor actor fails schema validation and is a compile error to construct.
+The derived principal is enforced in types rather than by convention: on the stack [ADR-0006](0006-typescript-node-for-agent-cli.md) chooses, an event carrying neither principal nor actor fails schema validation and is a compile error to construct.
 
 ## Alternatives considered
 

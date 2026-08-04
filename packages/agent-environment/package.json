@@ -1,0 +1,23 @@
+{
+  "name": "@agent-village/agent-environment",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Sandboxed environments joined by directional bridges. Implements docs/specs/0002-agent-environment.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "npm run build && node --test dist/**/*.test.js",
+    "fixture:m1": "npm run build && node dist/fixture/run-m1.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "eslint": "^9.17.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.19.0"
+  }
+}

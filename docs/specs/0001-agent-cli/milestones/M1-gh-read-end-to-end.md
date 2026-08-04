@@ -94,7 +94,7 @@ What could go wrong, in rough order of how much it would cost:
 
 ## Decisions needed
 
-- [ADR-0004](../../../adr/0004-typescript-node-for-agent-cli.md) and
+- [ADR-0006](../../../adr/0006-typescript-node-for-agent-cli.md) and
   [ADR-0005](../../../adr/0005-socket-derived-principal-and-grant-layout.md) are both `Proposed`. They
   move to `Accepted` on the strength of this milestone, or they are revised by it.
 - **Open question Q2** — where the auth process runs — decides whether the portable path resolver or

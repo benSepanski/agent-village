@@ -1,4 +1,4 @@
-# ADR 0004: TypeScript on Node 22 for agent-cli
+# ADR 0006: TypeScript on Node 22 for agent-cli
 
 Date: 2026-08-02
 Status: Proposed

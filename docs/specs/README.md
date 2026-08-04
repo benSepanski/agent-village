@@ -8,9 +8,10 @@ Specs are the only thing that authorizes implementation. No accepted spec, no co
 
 ## Index
 
-| Spec                           | Title     | Status |
-| ------------------------------ | --------- | ------ |
-| [0001](0001-agent-cli/spec.md) | agent-cli | Draft  |
+| Spec                                   | Title             | Status   |
+| -------------------------------------- | ----------------- | -------- |
+| [0001](0001-agent-cli/spec.md)         | agent-cli         | Draft    |
+| [0002](0002-agent-environment/spec.md) | agent-environment | Accepted |
 
 ## Layout
 

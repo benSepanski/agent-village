@@ -78,7 +78,7 @@ What could go wrong:
 - **The platform's URL machinery silently rewrites the request-target.** This is not hypothetical: on
   the pinned runtime, the WHATWG parser collapses percent-encoded dot segments and resolves
   protocol-relative references, which is why
-  [ADR-0004](../../../adr/0004-typescript-node-for-agent-cli.md) rejects `fetch` outright. Any code
+  [ADR-0006](../../../adr/0006-typescript-node-for-agent-cli.md) rejects `fetch` outright. Any code
   path that reaches for a URL type reintroduces it, and no artifact on disk would be wrong.
 - **Asserting intent instead of bytes.** A test that inspects the emitter's own output structure will
   pass while the wire disagrees. AC-M2.7 is worded around observed bytes for exactly this reason.
@@ -89,7 +89,7 @@ What could go wrong:
 
 - **Open question Q2** must be answered before this milestone finishes, because it decides whether
   G10 ships at its full or weakened strength, and whether
-  [ADR-0004](../../../adr/0004-typescript-node-for-agent-cli.md) takes its reserved second dependency.
+  [ADR-0006](../../../adr/0006-typescript-node-for-agent-cli.md) takes its reserved second dependency.
 - **Open question Q16** — whether a runtime or HTTP-client minor-version bump gates on re-running
   AC-M2.7 — becomes answerable here, because this is where the corpus exists. If the answer is no, the
   spec should say G7's `http` clause is guidance rather than a rule.
