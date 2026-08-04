@@ -1,7 +1,7 @@
 # ADR 0004: TypeScript on Node for the agent-environment implementation
 
 Date: 2026-08-04
-Status: Proposed
+Status: Accepted
 Driver: [spec 0002, milestone M1](../specs/0002-agent-environment/milestones/M1-walking-skeleton.md)
 
 ## Context
