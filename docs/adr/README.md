@@ -6,11 +6,13 @@ Format: [adr.github.io](https://adr.github.io).
 **Never edit an accepted ADR.** Write a new one that supersedes it. The single exception is the
 `Status:` line of the superseded ADR, which is updated to point at its successor.
 
-| ADR                                           | Title                         | Status   |
-| --------------------------------------------- | ----------------------------- | -------- |
-| [0001](0001-docs-first-spec-driven-reset.md)  | Docs-first, spec-driven reset | Accepted |
-| [0002](0002-history-over-commentary.md)       | History over commentary       | Accepted |
-| [0003](0003-auditability-is-a-requirement.md) | Auditability is a requirement | Accepted |
+| ADR                                                       | Title                                | Status   |
+| --------------------------------------------------------- | ------------------------------------ | -------- |
+| [0001](0001-docs-first-spec-driven-reset.md)              | Docs-first, spec-driven reset        | Accepted |
+| [0002](0002-history-over-commentary.md)                   | History over commentary              | Accepted |
+| [0003](0003-auditability-is-a-requirement.md)             | Auditability is a requirement        | Accepted |
+| [0004](0004-typescript-node-for-agent-cli.md)             | TypeScript on Node 22 for agent-cli  | Proposed |
+| [0005](0005-socket-derived-principal-and-grant-layout.md) | Identity is the grant-directory path | Proposed |
 
 ## When to write one
 

@@ -60,4 +60,8 @@ These are review rules until a stack exists to enforce them:
   ([ADR-0003](../adr/0003-auditability-is-a-requirement.md)).
 - One doc, one question ([doc-system.md](doc-system.md)).
 
-When the first spec picks a language, its ADR should say which of these become lint rules.
+[Spec 0001](../specs/0001-agent-cli/spec.md) picks the language, and
+[ADR-0004](../adr/0004-typescript-node-for-agent-cli.md) carries the table of which conventions become
+which mechanical checks. Those checks land with the spec's first milestone, not at acceptance, so this
+section stays true in the interval — and nothing is added to the Commands table above until a milestone
+introduces it, because a check that is not in CI is a suggestion.
