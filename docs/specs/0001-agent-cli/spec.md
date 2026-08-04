@@ -1,7 +1,7 @@
 # Spec 0001: agent-cli
 
-Status: Draft
-Accepted: —
+Status: Accepted
+Accepted: 2026-08-04
 Supersedes: —
 
 ## Summary
