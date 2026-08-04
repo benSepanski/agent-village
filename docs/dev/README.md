@@ -71,3 +71,7 @@ enforces them yet:
 - Every component states its audit surface
   ([ADR-0003](../adr/0003-auditability-is-a-requirement.md)).
 - One doc, one question ([doc-system.md](doc-system.md)).
+
+For `agent-cli`, [ADR-0006](../adr/0006-typescript-node-for-agent-cli.md) (Proposed) tables which of
+these become mechanical checks; those land with
+[spec 0001](../specs/0001-agent-cli/spec.md)'s first milestone, if the spec is accepted.
