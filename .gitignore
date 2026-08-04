@@ -41,3 +41,6 @@ temp/
 .tmp/
 *.bak
 *.orig
+
+# Build output
+dist/
