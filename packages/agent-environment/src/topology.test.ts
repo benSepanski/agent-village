@@ -96,6 +96,27 @@ void test('AC-M2.1: rejects two writer environments on one volume, naming the vo
   );
 });
 
+void test('AC-M2.1: a read-write reader mount counts as a second writer', () => {
+  expectRejection(
+    loadFixture('m2/two-writers/second-writer-via-reader-mode.json'),
+    'volume-has-multiple-writers',
+    { volume: 'ledger' },
+  );
+});
+
+void test('rejects a mount whose mode contradicts its role, naming the mount', () => {
+  expectRejection(
+    loadFixture('m2/role-mode-mismatch/reader-mount-read-write.json'),
+    'mount-role-mode-mismatch',
+    { volume: 'scratch', environment: 'searcher' },
+  );
+  expectRejection(
+    loadFixture('m2/role-mode-mismatch/writer-mount-read-only.json'),
+    'mount-role-mode-mismatch',
+    { volume: 'scratch', environment: 'searcher' },
+  );
+});
+
 void test('one environment writing two subtrees of one volume is one writer, not two', () => {
   const raw = valid();
   raw.environments[0]!.mounts = [

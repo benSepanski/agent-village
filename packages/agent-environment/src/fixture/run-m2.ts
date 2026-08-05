@@ -42,6 +42,26 @@ const REJECTIONS: RejectionExpectation[] = [
     volume: 'ledger',
   },
   {
+    criterion: 'AC-M2.1',
+    fixture: 'm2/two-writers/second-writer-via-reader-mode.json',
+    reason: 'volume-has-multiple-writers',
+    volume: 'ledger',
+  },
+  {
+    criterion: 'AC-M2.1',
+    fixture: 'm2/role-mode-mismatch/reader-mount-read-write.json',
+    reason: 'mount-role-mode-mismatch',
+    volume: 'scratch',
+    environment: 'searcher',
+  },
+  {
+    criterion: 'AC-M2.1',
+    fixture: 'm2/role-mode-mismatch/writer-mount-read-only.json',
+    reason: 'mount-role-mode-mismatch',
+    volume: 'scratch',
+    environment: 'searcher',
+  },
+  {
     criterion: 'AC-M2.2',
     fixture: 'm2/mediated-read-write/writer-mount.json',
     reason: 'mediated-volume-mounted-read-write',
