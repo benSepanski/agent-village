@@ -24,6 +24,19 @@ fresh and attempting hostile variants the fixtures do not cover (e.g. a violatio
 a bridge rather than a mount). A Docker-equipped session should also rerun `pnpm fixture:m1` to
 confirm the schema migration did not regress the walking skeleton.
 
+## Addendum, same day: the M1 gap is closed, and Docker is available after all
+
+After #48 merged, the owner asked whether remote containers can run Docker. They can: the managed
+containers ship `docker`/`dockerd` pre-installed — only the daemon is not started at session boot,
+which is why `docker info` failed earlier. `nohup dockerd &` (root, overlayfs) brings it up in
+seconds, and image pulls work through the session proxy.
+
+With the daemon up, `pnpm fixture:m1` was rerun live against the merged main: **all six AC-M1
+criteria PASS** on the schema-migrated fixture. The "not verified live" gap above is closed; M2 QA
+does not need to repeat it (rerunning as part of QA is still fine). Future sessions needing Docker:
+start `dockerd` first, or the owner can add it to the environment setup script / a SessionStart
+hook so it is always up.
+
 Standing items, carried forward from
 [2026-08-04-qa-m1-and-spec-0001-landed.md](2026-08-04-qa-m1-and-spec-0001-landed.md):
 
