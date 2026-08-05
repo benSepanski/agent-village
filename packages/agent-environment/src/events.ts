@@ -1,9 +1,12 @@
+import type { Finding, RejectionReason } from './topology.js';
+
 /**
- * The M1 slice of the spec's closed event set (spec 0002, "Audit surface").
+ * The built slice of the spec's closed event set (spec 0002, "Audit surface").
  * Emitting a name outside this set is a type error; AC-M1.6 checks the journal too.
  */
 export const EVENT_NAMES = [
   'topology.declared',
+  'topology.rejected',
   'instance.started',
   'activation.started',
   'activation.ended',
@@ -29,10 +32,12 @@ export type Verdict = 'allow' | 'deny';
 export type Decider = 'program';
 
 /**
- * M1 principals. `agent-instance` carries the four-part identity from the spec's
+ * Principals. `agent-instance` carries the four-part identity from the spec's
  * terminology so a logical role and one of its incarnations are distinguishable.
+ * `owner` is who declared the topology.
  */
 export type Principal =
+  | { kind: 'owner' }
   | { kind: 'runtime' }
   | { kind: 'bridge'; bridge: string }
   | {
@@ -89,6 +94,24 @@ export interface TopologyDeclared extends Envelope {
   event: 'topology.declared';
   topology_digest: string;
   application: string;
+  /** The checker's surfaced weak spots (AC-1.6) — accepted, but never silent. */
+  findings: Finding[];
+}
+
+/**
+ * A declaration the checker refused (AC-2.2, AC-M2.7). One event per violated
+ * rule: `reason` names the rule, the optional fields name the offending element.
+ * The instance does not start.
+ */
+export interface TopologyRejected extends Envelope {
+  event: 'topology.rejected';
+  topology_digest: string | null;
+  application: string | null;
+  reason: RejectionReason;
+  detail: string;
+  volume: string | null;
+  environment: string | null;
+  bridge: string | null;
 }
 
 export interface InstanceStarted extends Envelope {
@@ -108,6 +131,7 @@ export interface ActivationEnded extends Envelope {
 
 export type JournalEvent =
   | TopologyDeclared
+  | TopologyRejected
   | InstanceStarted
   | ActivationStarted
   | ActivationEnded

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "application": "m2-writer-missing-subtree",
+  "volumes": [
+    { "name": "scratch", "durability": "session", "mediated": false, "credential_class": false }
+  ],
+  "environments": [
+    {
+      "name": "searcher",
+      "agent_instance": true,
+      "credential_holding": false,
+      "request_types": [],
+      "mounts": [{ "volume": "scratch", "role": "writer", "mode": "read-write" }]
+    }
+  ],
+  "bridges": []
+}

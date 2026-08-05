@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "application": "m2-allow-all-memory-bridge",
+  "volumes": [
+    { "name": "memory", "durability": "durable", "mediated": true, "credential_class": false }
+  ],
+  "environments": [
+    {
+      "name": "assistant",
+      "agent_instance": true,
+      "credential_holding": false,
+      "request_types": ["memory.append"],
+      "mounts": [{ "volume": "memory", "role": "reader", "mode": "read-only", "subtree": "facts" }]
+    }
+  ],
+  "bridges": [
+    {
+      "name": "memory-write",
+      "direction": "egress",
+      "from": "assistant",
+      "target": { "kind": "volume", "volume": "memory" },
+      "request_types": [
+        {
+          "name": "memory.append",
+          "fidelity": "parsed",
+          "content": "agent-authored",
+          "retryable": true,
+          "policy": { "kind": "allow-all" }
+        }
+      ]
+    }
+  ]
+}

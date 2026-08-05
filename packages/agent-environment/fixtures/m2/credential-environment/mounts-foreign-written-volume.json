@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "application": "m2-credential-environment-foreign-volume",
+  "volumes": [
+    { "name": "vault-keys", "durability": "durable", "mediated": false, "credential_class": true },
+    { "name": "notes", "durability": "durable", "mediated": false, "credential_class": false }
+  ],
+  "environments": [
+    {
+      "name": "scribe",
+      "agent_instance": true,
+      "credential_holding": false,
+      "request_types": [],
+      "mounts": [{ "volume": "notes", "role": "writer", "mode": "read-write", "subtree": "drafts" }]
+    },
+    {
+      "name": "vault",
+      "agent_instance": true,
+      "credential_holding": true,
+      "request_types": [],
+      "mounts": [
+        { "volume": "vault-keys", "role": "reader", "mode": "read-only", "subtree": "mail" },
+        { "volume": "notes", "role": "reader", "mode": "read-only", "subtree": "drafts" }
+      ]
+    }
+  ],
+  "bridges": []
+}

@@ -2,7 +2,7 @@ import { createServer, type Server, type Socket } from 'node:net';
 
 import type { DenyReason, Principal } from './events.js';
 import { digestOf, type Journal } from './journal.js';
-import type { Topology } from './topology.js';
+import type { BridgeDecl, EnvironmentDecl } from './topology.js';
 
 /**
  * Wire protocol on the environment-side channel: one JSON object per line.
@@ -35,7 +35,8 @@ export class Bridge {
   private server: Server | null = null;
 
   constructor(
-    private readonly topology: Topology,
+    private readonly environment: EnvironmentDecl,
+    private readonly bridge: BridgeDecl,
     private readonly journal: Journal,
     private readonly turn: string,
     private readonly identity: { application_instance: string; activation: string },
@@ -88,7 +89,7 @@ export class Bridge {
     this.crossings += 1;
     const crossing = `x-${this.crossings}`;
     const requestDigest = digestOf(request.payload);
-    const bridgeName = this.topology.bridge.name;
+    const bridgeName = this.bridge.name;
     const common = {
       crossing,
       bridge: bridgeName,
@@ -98,7 +99,7 @@ export class Bridge {
     const requester: Principal = {
       kind: 'agent-instance',
       application_instance: this.identity.application_instance,
-      environment: this.topology.environment.name,
+      environment: this.environment.name,
       activation: this.identity.activation,
       turn: this.turn,
     };
@@ -137,12 +138,15 @@ export class Bridge {
   }
 
   private decide(request: InvokeRequest): { allow: true } | { allow: false; reason: DenyReason } {
-    if (!this.topology.environment.request_types.includes(request.request_type)) {
+    if (!this.environment.request_types.includes(request.request_type)) {
       return { allow: false, reason: 'request-type-undeclared' };
     }
-    const decl = this.topology.bridge.request_types.find((rt) => rt.name === request.request_type);
+    const decl = this.bridge.request_types.find((rt) => rt.name === request.request_type);
     if (!decl) {
       return { allow: false, reason: 'request-type-undeclared' };
+    }
+    if (decl.policy.kind === 'allow-all') {
+      return { allow: true };
     }
     const payload = request.payload;
     if (
