@@ -23,9 +23,10 @@ pnpm install
 | `pnpm -r test`      | Build, then `node --test` over each package's unit tests |
 
 Verification that needs a Docker daemon is not in `pnpm check`; each milestone documents its own
-fixture command (e.g. `pnpm --filter @agent-village/agent-environment fixture:m1`). A new check
-lands here and in `.github/workflows/docs.yml` in the same change — a check that is not in CI is a
-suggestion.
+fixture command (e.g. `pnpm --filter @agent-village/agent-environment fixture:m1`). In Claude Code
+web sessions the SessionStart hook (`.claude/hooks/session-start.sh`) installs the workspace and
+starts `dockerd`, so those commands work there too. A new check lands here and in
+`.github/workflows/docs.yml` in the same change — a check that is not in CI is a suggestion.
 
 ## Layout
 
