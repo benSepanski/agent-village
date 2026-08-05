@@ -77,6 +77,7 @@ export interface RequestTypeDecl {
 export const REJECTION_REASONS = [
   'declaration-malformed',
   'volume-has-multiple-writers',
+  'mount-role-mode-mismatch',
   'mediated-volume-mounted-read-write',
   'journal-mounted-into-agent-environment',
   'credential-volume-outside-credential-environment',
@@ -165,12 +166,17 @@ export function checkTopology(raw: unknown): CheckResult {
 type Rule = (topology: Topology) => Violation[];
 type FindingRule = (topology: Topology) => Finding[];
 
-/** AC-1.1: a volume has at most one writer environment — including via distinct subtrees. */
+/**
+ * AC-1.1: a volume has at most one writer environment — including via distinct
+ * subtrees, and counting a read-write mount as writing whatever role it claims,
+ * so mode cannot smuggle a second write path past the role-based count.
+ */
 const oneWriterPerVolume: Rule = (topology) => {
   const writersOf = new Map<string, string[]>();
   for (const env of topology.environments) {
     for (const mount of env.mounts) {
-      if (mount.role !== 'writer' || mount.volume === JOURNAL_VOLUME) continue;
+      if (mount.role !== 'writer' && mount.mode !== 'read-write') continue;
+      if (mount.volume === JOURNAL_VOLUME) continue;
       const writers = writersOf.get(mount.volume) ?? [];
       if (!writers.includes(env.name)) writers.push(env.name);
       writersOf.set(mount.volume, writers);
@@ -183,6 +189,32 @@ const oneWriterPerVolume: Rule = (topology) => {
       detail: `volume ${volume} declares ${String(writers.length)} writer environments: ${writers.join(', ')}`,
       volume,
     }));
+};
+
+/**
+ * A mount's mode must be what its role declares: the writer of a volume is
+ * read-write, a reader is read-only. Without this, a `reader` mount with mode
+ * `read-write` is kernel-level write access held by an environment the
+ * topology does not name as the writer — outside both the one-writer count
+ * (AC-1.1) and the write lease the spec's no-two-concurrent-writers guarantee
+ * hangs on.
+ */
+const mountModeMatchesRole: Rule = (topology) => {
+  const violations: Violation[] = [];
+  for (const env of topology.environments) {
+    for (const mount of env.mounts) {
+      const expected = mount.role === 'writer' ? 'read-write' : 'read-only';
+      if (mount.mode !== expected) {
+        violations.push({
+          reason: 'mount-role-mode-mismatch',
+          detail: `mount of volume ${mount.volume} into ${env.name} declares role ${mount.role} with mode ${mount.mode}; a ${mount.role} mount is ${expected}`,
+          volume: mount.volume,
+          environment: env.name,
+        });
+      }
+    }
+  }
+  return violations;
 };
 
 /** AC-1.2: a mediated volume is write-only-via-crossing — no writer role, no read-write mount. */
@@ -291,6 +323,7 @@ const mountsDeclareSubtrees: Rule = (topology) => {
 
 const RULES: Rule[] = [
   oneWriterPerVolume,
+  mountModeMatchesRole,
   mediatedVolumesNeverWritable,
   journalUnreachableFromAgents,
   credentialVolumesStayInCredentialEnvironments,

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "application": "m2-role-mode-mismatch",
+  "volumes": [
+    { "name": "scratch", "durability": "session", "mediated": false, "credential_class": false }
+  ],
+  "environments": [
+    {
+      "name": "searcher",
+      "agent_instance": true,
+      "credential_holding": false,
+      "request_types": [],
+      "mounts": [
+        { "volume": "scratch", "role": "reader", "mode": "read-write", "subtree": "results" }
+      ]
+    }
+  ],
+  "bridges": []
+}
