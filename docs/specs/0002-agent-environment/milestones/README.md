@@ -7,7 +7,7 @@ dependency; each milestone is buildable and checkable without the ones after it.
 | Milestone                                                   | Slice                                                                      | Status   | QA                                                   |
 | ----------------------------------------------------------- | -------------------------------------------------------------------------- | -------- | ---------------------------------------------------- |
 | [M1-walking-skeleton](M1-walking-skeleton.md)               | One environment, no network, one program-decided crossing, journaled       | Complete | [Pass with follow-ups](../qa/M1-walking-skeleton.md) |
-| [M2-topology-checker](M2-topology-checker.md)               | Every declaration the spec says to refuse is refused, with a reason        | In progress | —                                                 |
+| [M2-topology-checker](M2-topology-checker.md)               | Every declaration the spec says to refuse is refused, with a reason        | Complete | —                                                    |
 | [M3-volumes-and-activations](M3-volumes-and-activations.md) | Declared mounts enforced; session volumes reset; activations begin and end | Planned  | —                                                    |
 | [M4-wakeups-turns-leases](M4-wakeups-turns-leases.md)       | Wakeups start turns; the write lease serialises them; queueing is recorded | Planned  | —                                                    |
 | [M5-mediated-volumes](M5-mediated-volumes.md)               | Pinned read-only mounts; every change to a mediated volume is a crossing   | Planned  | —                                                    |

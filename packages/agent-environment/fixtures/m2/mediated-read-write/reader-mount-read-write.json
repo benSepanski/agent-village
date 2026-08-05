@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "application": "m2-mediated-reader-read-write",
+  "volumes": [
+    { "name": "memory", "durability": "durable", "mediated": true, "credential_class": false }
+  ],
+  "environments": [
+    {
+      "name": "assistant",
+      "agent_instance": true,
+      "credential_holding": false,
+      "request_types": [],
+      "mounts": [{ "volume": "memory", "role": "reader", "mode": "read-write", "subtree": "facts" }]
+    }
+  ],
+  "bridges": []
+}

@@ -1,7 +1,7 @@
 # M2: Topology checker — refuse what the spec refuses
 
 Spec: `../spec.md`
-Status: Planned
+Status: Complete
 Depends on: M1
 
 ## Slice

@@ -9,26 +9,39 @@ import { EVENT_NAMES } from './events.js';
 import { Journal } from './journal.js';
 import { checkTopology } from './topology.js';
 
-const topology = checkTopology({
-  version: 'm1',
+const checked = checkTopology({
+  version: 1,
   application: 'm1-walking-skeleton',
-  environment: { name: 'probe', agent_instance: true, request_types: ['probe.echo'] },
-  bridge: {
-    name: 'probe-egress',
-    direction: 'egress',
-    from: 'probe',
-    target: 'network',
-    request_types: [
-      {
-        name: 'probe.echo',
-        fidelity: 'parsed',
-        content: 'structured',
-        retryable: true,
-        policy: { kind: 'program', max_message_bytes: 16 },
-      },
-    ],
-  },
+  volumes: [],
+  environments: [
+    {
+      name: 'probe',
+      agent_instance: true,
+      credential_holding: false,
+      request_types: ['probe.echo'],
+      mounts: [],
+    },
+  ],
+  bridges: [
+    {
+      name: 'probe-egress',
+      direction: 'egress',
+      from: 'probe',
+      target: { kind: 'network' },
+      request_types: [
+        {
+          name: 'probe.echo',
+          fidelity: 'parsed',
+          content: 'structured',
+          retryable: true,
+          policy: { kind: 'program', max_message_bytes: 16 },
+        },
+      ],
+    },
+  ],
 });
+if (!checked.accepted) throw new Error('test topology must be accepted');
+const topology = checked.topology;
 
 function makeBridge() {
   const dir = mkdtempSync(join(tmpdir(), 'ae-test-'));
@@ -38,7 +51,7 @@ function makeBridge() {
     activation: 'act-test',
     flow: 'flow-test',
   });
-  const bridge = new Bridge(topology, journal, 'turn-1', {
+  const bridge = new Bridge(topology.environments[0]!, topology.bridges[0]!, journal, 'turn-1', {
     application_instance: 'ai-test',
     activation: 'act-test',
   });

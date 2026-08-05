@@ -10,3 +10,4 @@ decide, perform, and record. The spec's terminology is binding here — start th
 | Understand the stack choice       | [ADR-0004](../../docs/adr/0004-typescript-node-stack.md)                                   |
 | Run the checks                    | `pnpm typecheck && pnpm lint && pnpm test` (no Docker needed)                              |
 | Run the M1 walking-skeleton proof | `pnpm fixture:m1` (needs a Docker daemon; prints per-criterion PASS/FAIL and journal path) |
+| Run the M2 checker proof          | `pnpm fixture:m2` (no Docker needed — rejection happens before anything runs)              |

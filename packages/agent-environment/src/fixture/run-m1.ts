@@ -5,15 +5,15 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { Bridge } from '../bridge.js';
+import { declareTopologyFile } from '../declare.js';
 import { EVENT_NAMES, type JournalEvent } from '../events.js';
-import { digestOf, Journal } from '../journal.js';
+import { Journal } from '../journal.js';
 import {
   environmentLogs,
   removeEnvironment,
   startEnvironment,
   waitEnvironment,
 } from '../runtime.js';
-import { loadTopology, TopologyError } from '../topology.js';
 
 /**
  * The documented M1 fixture command (milestone verification, step 2): declare
@@ -39,17 +39,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 async function main(): Promise<void> {
   const topologyPath = process.argv[2] ?? resolve(here, '..', '..', 'fixtures', 'm1-topology.json');
 
-  let topology;
-  try {
-    topology = loadTopology(topologyPath);
-  } catch (err) {
-    if (err instanceof TopologyError) {
-      console.error(err.message);
-      process.exit(1);
-    }
-    throw err;
-  }
-
   const runId = randomBytes(4).toString('hex');
   const runDir = join(tmpdir(), `agent-environment-m1-${runId}`);
   const channelDir = join(runDir, 'channel');
@@ -63,15 +52,28 @@ async function main(): Promise<void> {
   const turn = 'turn-1';
   const journal = new Journal(join(runDir, 'journal.jsonl'), identity);
 
-  journal.emit({
-    event: 'topology.declared',
-    principal: { kind: 'runtime' },
-    turn: null,
-    topology_digest: digestOf(topology),
-    application: topology.application,
-  });
+  const declared = declareTopologyFile(journal, topologyPath);
+  if (!declared.accepted) {
+    for (const violation of declared.violations) {
+      console.error(`topology refused: ${violation.reason}: ${violation.detail}`);
+    }
+    console.error(`instance not started; journal: ${journal.file}`);
+    process.exit(1);
+  }
+  const topology = declared.topology;
+  const environment = topology.environments[0];
+  const egress = topology.bridges[0];
+  if (
+    topology.environments.length !== 1 ||
+    topology.bridges.length !== 1 ||
+    !environment ||
+    !egress
+  ) {
+    console.error('the M1 fixture runner drives exactly one environment and one bridge');
+    process.exit(1);
+  }
 
-  const bridge = new Bridge(topology, journal, turn, identity);
+  const bridge = new Bridge(environment, egress, journal, turn, identity);
   await bridge.listen(join(channelDir, 'bridge.sock'));
 
   // The environment gets only the code it runs — the probe and its harness
@@ -93,7 +95,7 @@ async function main(): Promise<void> {
     event: 'instance.started',
     principal: { kind: 'runtime' },
     turn: null,
-    environment: topology.environment.name,
+    environment: environment.name,
     container: env.container,
   });
   journal.emit({ event: 'activation.started', principal: { kind: 'runtime' }, turn: null });

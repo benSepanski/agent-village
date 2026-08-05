@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "application": "m2-journal-into-agent-environment",
+  "volumes": [],
+  "environments": [
+    {
+      "name": "assistant",
+      "agent_instance": true,
+      "credential_holding": false,
+      "request_types": [],
+      "mounts": [{ "volume": "journal", "role": "reader", "mode": "read-only", "subtree": "audit" }]
+    }
+  ],
+  "bridges": []
+}

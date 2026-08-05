@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "application": "m2-two-writers-via-subtrees",
+  "volumes": [
+    { "name": "ledger", "durability": "durable", "mediated": false, "credential_class": false }
+  ],
+  "environments": [
+    {
+      "name": "sweeper",
+      "agent_instance": true,
+      "credential_holding": false,
+      "request_types": [],
+      "mounts": [
+        { "volume": "ledger", "role": "writer", "mode": "read-write", "subtree": "sweeps" }
+      ]
+    },
+    {
+      "name": "tailor",
+      "agent_instance": true,
+      "credential_holding": false,
+      "request_types": [],
+      "mounts": [
+        { "volume": "ledger", "role": "writer", "mode": "read-write", "subtree": "materials" }
+      ]
+    }
+  ],
+  "bridges": []
+}
