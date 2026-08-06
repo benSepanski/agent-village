@@ -301,3 +301,19 @@ void test('malformed declarations refuse with declaration-malformed', () => {
   mediatedSession.volumes[1]!.durability = 'session';
   expectRejection(mediatedSession, 'declaration-malformed', {});
 });
+
+void test('a subtree is "/" or a relative path of plain segments', () => {
+  const rootSubtree = valid();
+  rootSubtree.environments[0]!.mounts[0]!.subtree = '/';
+  assert.equal(checkTopology(rootSubtree).accepted, true);
+
+  const nested = valid();
+  nested.environments[0]!.mounts[0]!.subtree = 'inbox/2026';
+  assert.equal(checkTopology(nested).accepted, true);
+
+  for (const escape of ['../outside', 'inbox/../../etc', './inbox', 'inbox//2026', '/inbox']) {
+    const traversal = valid();
+    traversal.environments[0]!.mounts[0]!.subtree = escape;
+    expectRejection(traversal, 'declaration-malformed', {});
+  }
+});
