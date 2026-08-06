@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "application": "m3-volumes-and-activations",
+  "volumes": [
+    { "name": "shared", "durability": "durable", "mediated": false, "credential_class": false },
+    { "name": "prompts", "durability": "durable", "mediated": false, "credential_class": false },
+    { "name": "scratch", "durability": "session", "mediated": false, "credential_class": false }
+  ],
+  "environments": [
+    {
+      "name": "writer",
+      "agent_instance": true,
+      "credential_holding": false,
+      "request_types": [],
+      "mounts": [
+        { "volume": "shared", "role": "writer", "mode": "read-write", "subtree": "/" },
+        { "volume": "scratch", "role": "writer", "mode": "read-write", "subtree": "/" }
+      ]
+    },
+    {
+      "name": "reader",
+      "agent_instance": true,
+      "credential_holding": false,
+      "request_types": [],
+      "mounts": [
+        { "volume": "shared", "role": "reader", "mode": "read-only", "subtree": "public" },
+        { "volume": "prompts", "role": "reader", "mode": "read-only", "subtree": "/" }
+      ]
+    }
+  ],
+  "bridges": []
+}

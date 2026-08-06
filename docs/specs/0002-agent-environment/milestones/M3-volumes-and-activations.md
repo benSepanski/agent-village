@@ -1,7 +1,7 @@
 # M3: Volumes, mounts, and activation lifecycle
 
 Spec: `../spec.md`
-Status: Planned
+Status: Complete
 Depends on: M2
 
 ## Slice
@@ -57,6 +57,11 @@ read-only must be the mount flag, not file permissions.
 
 - Where the flow boundary that resets a `session` volume is declared in the topology schema —
   settle in review; no ADR unless it changes the terminology's meaning of `session`.
+  **Settled during execution:** it is not a separate schema field. Durability `session` itself is
+  the declaration — the platform destroys and recreates the volume's contents at every flow
+  boundary of the application instance, digesting first. A per-volume boundary declaration waits
+  for a driving application that needs a coarser one; the terminology's meaning of `session` is
+  unchanged, so no ADR.
 
 ## Verification
 

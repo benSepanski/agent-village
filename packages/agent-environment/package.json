@@ -13,7 +13,8 @@
     "lint": "eslint src",
     "test": "npm run build && node --test dist/**/*.test.js",
     "fixture:m1": "npm run build && node dist/fixture/run-m1.js",
-    "fixture:m2": "npm run build && node dist/fixture/run-m2.js"
+    "fixture:m2": "npm run build && node dist/fixture/run-m2.js",
+    "fixture:m3": "npm run build && node dist/fixture/run-m3.js"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

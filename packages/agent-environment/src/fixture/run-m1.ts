@@ -9,6 +9,8 @@ import { declareTopologyFile } from '../declare.js';
 import { EVENT_NAMES, type JournalEvent } from '../events.js';
 import { Journal } from '../journal.js';
 import {
+  computeUnit,
+  computeUnitOf,
   environmentLogs,
   removeEnvironment,
   startEnvironment,
@@ -87,6 +89,8 @@ async function main(): Promise<void> {
 
   const env = await startEnvironment({
     name: `ae-m1-${runId}`,
+    environment,
+    mounts: [],
     channelDir,
     codeDir: appDir,
     entrypoint: 'probe/run-m1.js',
@@ -97,12 +101,26 @@ async function main(): Promise<void> {
     turn: null,
     environment: environment.name,
     container: env.container,
+    compute_unit: await computeUnitOf(env),
   });
-  journal.emit({ event: 'activation.started', principal: { kind: 'runtime' }, turn: null });
+  journal.emit({
+    event: 'activation.started',
+    principal: { kind: 'runtime' },
+    turn: null,
+    compute_unit: await computeUnit(),
+  });
 
   const exitCode = await waitEnvironment(env);
   const logs = await environmentLogs(env);
   await removeEnvironment(env);
+  journal.emit({
+    event: 'instance.stopped',
+    principal: { kind: 'runtime' },
+    turn: null,
+    environment: environment.name,
+    container: env.container,
+    exit_code: exitCode,
+  });
   journal.emit({
     event: 'activation.ended',
     principal: { kind: 'runtime' },

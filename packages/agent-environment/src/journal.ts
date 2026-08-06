@@ -22,11 +22,23 @@ export interface JournalIdentity {
  */
 export class Journal {
   private seq = 0;
+  private readonly identity: JournalIdentity;
 
   constructor(
     private readonly path: string,
-    private readonly identity: JournalIdentity,
-  ) {}
+    identity: JournalIdentity,
+  ) {
+    this.identity = { ...identity };
+  }
+
+  /**
+   * Advances the journal to a new flow at a flow boundary. M6 owns real flow
+   * minting at ingress admission; until then the platform runner drives the
+   * boundary and names the flows.
+   */
+  beginFlow(flow: string): void {
+    this.identity.flow = flow;
+  }
 
   emit(fields: PlatformStamped<JournalEvent>): void {
     this.seq += 1;

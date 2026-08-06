@@ -8,8 +8,12 @@ export const EVENT_NAMES = [
   'topology.declared',
   'topology.rejected',
   'instance.started',
+  'instance.stopped',
   'activation.started',
   'activation.ended',
+  'volume.mounted',
+  'volume.digest',
+  'volume.reset',
   'crossing.requested',
   'crossing.decided',
   'crossing.performed',
@@ -118,10 +122,48 @@ export interface InstanceStarted extends Envelope {
   event: 'instance.started';
   environment: string;
   container: string;
+  /** Where this instance runs; must equal its activation's (AC-M3.3). */
+  compute_unit: string;
+}
+
+export interface InstanceStopped extends Envelope {
+  event: 'instance.stopped';
+  environment: string;
+  container: string;
+  exit_code: number;
+}
+
+/**
+ * Volume events carry the volume name and its version — for an ordinary
+ * volume, the content digest of its host tree at the moment of the event.
+ */
+export interface VolumeMounted extends Envelope {
+  event: 'volume.mounted';
+  volume: string;
+  version: string;
+  environment: string;
+  role: 'writer' | 'reader';
+  mode: 'read-write' | 'read-only';
+  subtree: string;
+}
+
+export interface VolumeDigest extends Envelope {
+  event: 'volume.digest';
+  volume: string;
+  version: string;
+}
+
+/** A session volume destroyed at its flow boundary. `version` is the pre-reset digest (AC-M3.2). */
+export interface VolumeReset extends Envelope {
+  event: 'volume.reset';
+  volume: string;
+  version: string;
 }
 
 export interface ActivationStarted extends Envelope {
   event: 'activation.started';
+  /** The one logical compute unit every environment of this activation runs on (AC-M3.3). */
+  compute_unit: string;
 }
 
 export interface ActivationEnded extends Envelope {
@@ -133,8 +175,12 @@ export type JournalEvent =
   | TopologyDeclared
   | TopologyRejected
   | InstanceStarted
+  | InstanceStopped
   | ActivationStarted
   | ActivationEnded
+  | VolumeMounted
+  | VolumeDigest
+  | VolumeReset
   | CrossingRequested
   | CrossingDecided
   | CrossingPerformed;

@@ -484,8 +484,28 @@ function parseMount(raw: unknown, at: string, volumeNames: Set<string>): MountDe
     throw new TopologyError(`${at}: the journal has exactly one writer, the platform`);
   }
   const subtree =
-    m.subtree === undefined || m.subtree === null ? null : asString(m.subtree, `${at}.subtree`);
+    m.subtree === undefined || m.subtree === null
+      ? null
+      : parseSubtree(asString(m.subtree, `${at}.subtree`), at);
   return { volume, role, mode, subtree };
+}
+
+/**
+ * A subtree is "/" (the volume root) or a relative path of plain segments.
+ * Anything that could resolve outside the volume — "..", ".", empty segments,
+ * a leading or trailing slash — is refused here, because subtree enforcement
+ * is by mounting the subtree itself and a traversing subtree would mount
+ * something the declaration does not name.
+ */
+function parseSubtree(value: string, at: string): string {
+  if (value === '/') return value;
+  const segments = value.split('/');
+  if (segments.some((s) => s.length === 0 || s === '.' || s === '..')) {
+    throw new TopologyError(
+      `${at}.subtree must be "/" or a relative path of plain segments inside the volume`,
+    );
+  }
+  return value;
 }
 
 function parseBridge(
